@@ -8,10 +8,9 @@ from aiogram.types import (
     InlineQueryResultsButton,
     WebAppInfo,
 )
-import aiohttp
 import uuid
 
-from bot.config import BACKEND_URL, FRONTEND_URL
+from bot.config import FRONTEND_URL
 
 router = Router()
 
@@ -19,64 +18,46 @@ router = Router()
 @router.inline_query()
 async def inline_checkers(query: InlineQuery):
     """
-    Inline-режим: пользователь пишет @BotName в любом чате.
-    Создаём комнату на backend, возвращаем кнопку Web App.
+    Inline-режим: пользователь пишет @gameddd_bot в любом чате.
+    Формирует изолированную игровую комнату с карточкой статуса.
     """
-    player_id = str(query.from_user.id)
-    room_id: str | None = None
+    room_id = uuid.uuid4().hex[:6].upper()
+    user_name = query.from_user.first_name
+    if query.from_user.username:
+        user_name += f" (@{query.from_user.username})"
 
-    # Попытка создать комнату напрямую в памяти (если бот и сервер запущены вместе)
-    try:
-        from server.room_manager import RoomManager
-        room_id = RoomManager().create_room()
-    except Exception:
-        room_id = None
+    # Нативная ссылка Telegram Mini App
+    app_url = f"https://t.me/gameddd_bot/app?startapp={room_id}"
 
-    # Если не вышло — пробуем через HTTP API
-    if not room_id:
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{BACKEND_URL}/api/room/create",
-                    json={"creator_id": player_id},
-                    timeout=aiohttp.ClientTimeout(total=3),
-                ) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        room_id = data.get("room_id")
-        except Exception:
-            room_id = None
-
-    if not room_id:
-        # Fallback: генерируем id локально
-        room_id = uuid.uuid4().hex[:8].upper()
-
-    # Не передаём pid в URL, чтобы второй игрок получил свой уникальный ID в Mini App
-    game_url = f"{FRONTEND_URL}?room={room_id}"
-
-    # Внутри сообщения используем обычную url-кнопку, чтобы Telegram не выдавал BUTTON_TYPE_INVALID
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🎮 Войти в игру",
-                    url=game_url,
+                    text="🎮 Войти в комнату",
+                    url=app_url,
                 )
             ]
         ]
     )
 
+    message_text = (
+        f"♟️ <b>Изолированная комната #{room_id}</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"Статус: 🟡 <b>Ожидание соперника</b>\n"
+        f"Участники: <b>[ 👤 1 / 2 👥 ]</b>\n\n"
+        f"⚪ <b>Белые:</b> {user_name} <i>(в игре)</i>\n"
+        f"⚫ <b>Чёрные:</b> <i>[ свободно — жми кнопку ]</i>\n"
+        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"Нажми кнопку ниже, чтобы открыть Mini App!"
+    )
+
     result = InlineQueryResultArticle(
         id=room_id,
-        title="♟️ Создать партию в шашки",
-        description="Нажми, чтобы отправить приглашение в этот чат",
+        title=f"♟️ Создать комнату #{room_id} [ 👤 1 / 2 👥 ]",
+        description="Отправить приглашение сыграть в шашки в этот чат",
         thumbnail_url="https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/265f.png",
         input_message_content=InputTextMessageContent(
-            message_text=(
-                f"♟️ <b>Партия в шашки!</b>\n\n"
-                f"Комната: <code>{room_id}</code>\n"
-                f"Нажми кнопку ниже, чтобы присоединиться к игре!"
-            ),
+            message_text=message_text,
             parse_mode="HTML",
         ),
         reply_markup=keyboard,
@@ -85,7 +66,7 @@ async def inline_checkers(query: InlineQuery):
     # Кнопка над результатами поиска
     button = InlineQueryResultsButton(
         text="🎮 Быстрая игра в шашки",
-        web_app=WebAppInfo(url=game_url),
+        web_app=WebAppInfo(url=f"{FRONTEND_URL}?room={room_id}"),
     )
 
     await query.answer(
