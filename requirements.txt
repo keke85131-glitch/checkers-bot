@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+websockets
+python-dotenv
+aiogram==3.7.0
+aiohttp
