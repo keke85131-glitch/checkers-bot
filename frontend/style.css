@@ -1,28 +1,23 @@
 /* =============================================
-   Telegram Checkers Mini App — style.css
+   Telegram Checkers — Minimalist Theme
    ============================================= */
 
-/* ---------- CSS Variables ---------- */
 :root {
-  --bg:            #1c1c1e;
-  --bg-secondary:  #2c2c2e;
-  --cell-light:    #c8a96e;
-  --cell-dark:     #8b5e3c;
-  --piece-white:   #f0f0f0;
-  --piece-black:   #1a1a1a;
-  --shadow-white:  0 3px 8px rgba(0,0,0,.55);
-  --shadow-black:  0 3px 8px rgba(0,0,0,.75);
-  --accent:        #3478f6;
-  --green:         #34c759;
-  --red:           #ff3b30;
-  --text:          #ebebf5;
-  --text-dim:      #8e8e93;
-  --radius-piece:  50%;
-  --board-size:    min(100vmin, 400px);
-  --cell-size:     calc(var(--board-size) / 8);
+  --bg:            var(--tg-theme-bg-color, #17212b);
+  --card-bg:       var(--tg-theme-secondary-bg-color, #232e3c);
+  --text:          var(--tg-theme-text-color, #ffffff);
+  --text-muted:    var(--tg-theme-hint-color, #7f91a4);
+  --btn-color:     var(--tg-theme-button-color, #2b5278);
+  --btn-text:      var(--tg-theme-button-text-color, #ffffff);
+  --cell-light:    #c5a059;
+  --cell-dark:     #6f432a;
+  --green:         #4fae4e;
+  --green-bg:      rgba(79, 174, 78, 0.15);
+  --red:           #e55b5b;
+  --red-bg:        rgba(229, 91, 91, 0.15);
+  --board-size:    min(88vw, 360px);
 }
 
-/* ---------- Reset ---------- */
 *, *::before, *::after {
   box-sizing: border-box;
   margin: 0;
@@ -34,12 +29,12 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
   color: var(--text);
+  user-select: none;
 }
 
-/* ---------- Screens ---------- */
 .screen {
   display: flex;
   flex-direction: column;
@@ -49,230 +44,296 @@ html, body {
   height: 100%;
   position: absolute;
   inset: 0;
-  transition: opacity .25s ease;
+  padding: 20px;
 }
 
 .screen.hidden {
-  display: none;
+  display: none !important;
 }
 
-/* ---------- Waiting Screen ---------- */
-#screen-waiting p {
-  margin-top: 16px;
-  font-size: 17px;
-  color: var(--text-dim);
+/* ---------- Lobby ---------- */
+.lobby-header {
+  text-align: center;
+  margin-bottom: 24px;
+}
+
+.game-title {
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.room-tag {
+  display: inline-block;
+  margin-top: 6px;
+  font-family: monospace;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: var(--card-bg);
+  padding: 3px 10px;
+  border-radius: 8px;
+}
+
+.players-list {
+  width: 100%;
+  max-width: 320px;
+  background: var(--card-bg);
+  border-radius: 14px;
+  padding: 6px 0;
+  margin-bottom: 20px;
+}
+
+.player-row {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 12px;
+}
+
+.player-row:not(:last-child) {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.player-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.player-marker.white {
+  background: #f0f0f0;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.2);
+}
+
+.player-marker.black {
+  background: #111111;
+  box-shadow: 0 0 0 2px rgba(255,255,255,0.15);
+}
+
+.player-details {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.player-name {
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.player-color-label {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.status-pill {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 12px;
+  flex-shrink: 0;
+}
+
+.status-pill.online {
+  background: var(--green-bg);
+  color: var(--green);
+}
+
+.status-pill.offline {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-muted);
+}
+
+/* ---------- Buttons ---------- */
+.action-buttons {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.btn {
+  width: 100%;
+  padding: 14px;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  transition: opacity 0.15s, transform 0.1s;
   text-align: center;
 }
 
-.room-id {
-  font-size: 13px !important;
-  color: var(--text-dim) !important;
-  letter-spacing: .05em;
-  margin-top: 4px !important;
+.btn-primary {
+  background: var(--btn-color);
+  color: var(--btn-text);
 }
 
-/* Spinner */
-@keyframes spin {
-  to { transform: rotate(360deg); }
+.btn-secondary {
+  background: var(--card-bg);
+  color: var(--text);
 }
 
-.spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid var(--bg-secondary);
-  border-top-color: var(--accent);
-  border-radius: 50%;
-  animation: spin .9s linear infinite;
+.btn:active {
+  opacity: 0.85;
+  transform: scale(0.98);
 }
 
-/* ---------- Status Bar ---------- */
-#status-bar {
+/* ---------- Game Screen ---------- */
+.game-header, .game-footer {
   width: var(--board-size);
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 8px 4px;
-  flex-shrink: 0;
 }
 
-#turn-info {
-  font-size: 15px;
+.game-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.game-player-name {
+  font-size: 14px;
   font-weight: 600;
-  color: var(--text);
+  max-width: 160px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-#timer {
-  font-size: 20px;
+.game-player-count {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.timer {
+  font-family: monospace;
+  font-size: 15px;
   font-weight: 700;
-  color: var(--text);
-  min-width: 36px;
-  text-align: right;
-  transition: color .3s;
+  background: var(--card-bg);
+  padding: 4px 10px;
+  border-radius: 8px;
 }
 
-#timer.urgent {
+.timer.urgent {
   color: var(--red);
-  animation: pulse-text .5s ease-in-out infinite alternate;
+  background: var(--red-bg);
 }
 
-@keyframes pulse-text {
-  from { opacity: 1; }
-  to   { opacity: .55; }
+.turn-indicator {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.turn-indicator.active {
+  background: var(--green-bg);
+  color: var(--green);
 }
 
 /* ---------- Board ---------- */
-#screen-game {
-  gap: 0;
-  justify-content: flex-start;
-  padding-top: calc(50vh - var(--board-size)/2 - 36px);
-}
-
-#board-container {
-  width: var(--board-size);
-  height: var(--board-size);
-  border-radius: 6px;
-  overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0,0,0,.6);
-  flex-shrink: 0;
+.board-wrapper {
+  background: #2a1810;
+  padding: 6px;
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  margin: 6px 0;
 }
 
 #board {
   display: grid;
   grid-template-columns: repeat(8, 1fr);
-  grid-template-rows: repeat(8, 1fr);
-  width: 100%;
-  height: 100%;
+  width: var(--board-size);
+  height: var(--board-size);
+  border-radius: 6px;
+  overflow: hidden;
 }
 
-/* ---------- Cells ---------- */
 .cell {
   position: relative;
+  width: 100%;
+  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
-  user-select: none;
 }
 
-.cell-light { background: var(--cell-light); }
-.cell-dark  { background: var(--cell-dark); }
+.cell-light {
+  background: var(--cell-light);
+}
 
-/* Possible-move indicator (green dot) */
+.cell-dark {
+  background: var(--cell-dark);
+}
+
+.cell.selected {
+  box-shadow: inset 0 0 0 3px #4aa3df;
+}
+
 .cell.possible-move::after {
   content: '';
   position: absolute;
   width: 30%;
   height: 30%;
   border-radius: 50%;
-  background: rgba(52, 199, 89, .75);
+  background: rgba(79, 174, 78, 0.85);
   pointer-events: none;
-  animation: dot-pop .15s ease-out;
-}
-
-@keyframes dot-pop {
-  from { transform: scale(0); opacity: 0; }
-  to   { transform: scale(1); opacity: 1; }
-}
-
-/* ---------- Pieces ---------- */
-@keyframes selected-pulse {
-  0%   { box-shadow: 0 0 0 3px var(--accent), 0 3px 10px rgba(0,0,0,.5); }
-  50%  { box-shadow: 0 0 0 6px rgba(52,120,246,.45), 0 3px 10px rgba(0,0,0,.5); }
-  100% { box-shadow: 0 0 0 3px var(--accent), 0 3px 10px rgba(0,0,0,.5); }
 }
 
 .piece {
   width: 76%;
   height: 76%;
-  border-radius: var(--radius-piece);
-  position: relative;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
-  transition: transform .12s ease, box-shadow .12s ease;
-  flex-shrink: 0;
 }
 
-.piece:active { transform: scale(.93); }
-
 .piece-white {
-  background: radial-gradient(circle at 35% 32%, #ffffff, #d0cfc8);
-  box-shadow: var(--shadow-white);
-  border: 2px solid rgba(0,0,0,.12);
+  background: radial-gradient(circle at 35% 35%, #ffffff, #dcdcdc);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.35);
 }
 
 .piece-black {
-  background: radial-gradient(circle at 35% 32%, #3a3a3a, #111111);
-  box-shadow: var(--shadow-black);
-  border: 2px solid rgba(255,255,255,.08);
+  background: radial-gradient(circle at 35% 35%, #353535, #121212);
+  box-shadow: 0 3px 6px rgba(0,0,0,0.55);
 }
 
-/* Selected piece */
-.piece.selected {
-  animation: selected-pulse 1s ease-in-out infinite;
-  transform: translateY(-2px) scale(1.05);
-}
-
-/* King crown overlay */
-.piece.king::after {
+.piece.king::before {
   content: '★';
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(var(--cell-size) * .32);
-  line-height: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  pointer-events: none;
+  color: #f7d070;
+  font-size: 16px;
 }
 
-.piece-white.king::after { color: #c8a000; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
-.piece-black.king::after { color: #ffd700; text-shadow: 0 1px 2px rgba(0,0,0,.55); }
-
-/* ---------- Piece Counts ---------- */
-#piece-counts {
-  width: var(--board-size);
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 4px 0;
-  font-size: 14px;
-  color: var(--text-dim);
-}
-
-/* ---------- Game Over Screen ---------- */
-#result-emoji {
-  font-size: 72px;
-  margin-bottom: 16px;
-  animation: pop-in .4s cubic-bezier(.34,1.56,.64,1) both;
-}
-
-@keyframes pop-in {
-  from { transform: scale(.4); opacity: 0; }
-  to   { transform: scale(1);  opacity: 1; }
-}
-
-#result-text {
-  font-size: 22px;
-  font-weight: 700;
-  margin-bottom: 32px;
+/* ---------- Game Over ---------- */
+.gameover-box {
+  background: var(--card-bg);
+  padding: 28px 24px;
+  border-radius: 16px;
   text-align: center;
-  padding: 0 24px;
+  width: 100%;
+  max-width: 280px;
 }
 
-#btn-new-game {
-  background: var(--accent);
-  color: #fff;
-  border: none;
-  border-radius: 14px;
-  padding: 14px 40px;
-  font-size: 17px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: transform .1s, opacity .1s;
+.gameover-box h2 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
 }
 
-#btn-new-game:active {
-  transform: scale(.96);
-  opacity: .85;
+.gameover-box p {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-bottom: 20px;
 }

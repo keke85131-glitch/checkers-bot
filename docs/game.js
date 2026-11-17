@@ -33,25 +33,71 @@ const MY_NAME = tgUser
 
 // ---------- Bulletproof Room ID Extraction ----------
 function resolveRoomId() {
-  // 1. From Telegram WebApp SDK
+  const sanitize = (val) => {
+    if (!val || typeof val !== 'string') return null;
+    const clean = val.trim().replace(/^[#/?]+/, '');
+    const m = clean.match(/^[A-Za-z0-9_-]{3,32}$/);
+    return m ? clean.toUpperCase() : null;
+  };
+
+  const parseQuery = (qs) => {
+    if (!qs) return null;
+    try {
+      const clean = qs.replace(/^[#?]/, '');
+      const p = new URLSearchParams(clean);
+      // Direct params
+      for (const k of ['startapp', 'tgWebAppStartParam', 'start_param', 'room', 'r']) {
+        const v = p.get(k);
+        const s = sanitize(v);
+        if (s) return s;
+      }
+      // Check nested in tgWebAppData
+      const appData = p.get('tgWebAppData');
+      if (appData) {
+        const ap = new URLSearchParams(appData);
+        for (const k of ['start_param', 'tgWebAppStartParam', 'startapp', 'room']) {
+          const v = ap.get(k);
+          const s = sanitize(v);
+          if (s) return s;
+        }
+      }
+    } catch (e) {}
+    return null;
+  };
+
+  // 1. Telegram WebApp SDK start_param
   if (tg?.initDataUnsafe?.start_param) {
-    return tg.initDataUnsafe.start_param.toUpperCase();
+    const s = sanitize(tg.initDataUnsafe.start_param);
+    if (s) return s;
   }
 
-  // 2. From search query (?startapp=... or ?tgWebAppStartParam=... or ?room=...)
-  const sParams = new URLSearchParams(window.location.search);
-  const fromSearch = sParams.get('startapp') || sParams.get('tgWebAppStartParam') || sParams.get('room');
-  if (fromSearch) return fromSearch.toUpperCase();
+  // 2. Direct search query (?startapp=... or ?tgWebAppStartParam=... or ?room=...)
+  const fromSearch = parseQuery(window.location.search);
+  if (fromSearch) return fromSearch;
 
-  // 3. From URL hash (#tgWebAppStartParam=... or #startapp=...)
+  // 3. URL hash (#tgWebAppStartParam=... or #startapp=... or #tgWebAppData=...)
   if (window.location.hash) {
-    const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
-    const hParams = new URLSearchParams(rawHash);
-    const fromHash = hParams.get('tgWebAppStartParam') || hParams.get('startapp') || hParams.get('room');
-    if (fromHash) return fromHash.toUpperCase();
+    const fromHash = parseQuery(window.location.hash);
+    if (fromHash) return fromHash;
+
+    // Direct regex match from hash (e.g. #tgWebAppStartParam=XYZ)
+    const hashMatch = window.location.hash.match(/(?:tgWebAppStartParam|startapp|start_param|room)[=:]\s*([A-Za-z0-9_-]{3,32})/i);
+    if (hashMatch && hashMatch[1]) {
+      const s = sanitize(hashMatch[1]);
+      if (s) return s;
+    }
   }
 
-  // 4. Default: generate room ID
+  // 4. Regex fallback across full URL href
+  try {
+    const hrefMatch = window.location.href.match(/(?:tgWebAppStartParam|startapp|start_param|room)[=:]\s*([A-Za-z0-9_-]{3,32})/i);
+    if (hrefMatch && hrefMatch[1]) {
+      const s = sanitize(hrefMatch[1]);
+      if (s) return s;
+    }
+  } catch (e) {}
+
+  // 5. Default fallback: generate 6-character room ID
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
@@ -81,7 +127,7 @@ const $turnInfo       = document.getElementById('turn-info');
 const $resultTitle    = document.getElementById('result-title');
 const $resultDesc     = document.getElementById('result-desc');
 
-// Initialize DOM with immediate values (never show "Загрузка..." or "#...")
+// Initialize DOM with immediate values
 if ($roomTag) $roomTag.textContent = `#${ROOM_ID}`;
 if ($nameP1) $nameP1.textContent = MY_NAME;
 if ($statusP1) {
@@ -297,10 +343,10 @@ const state = {
   timerSeconds: 60,
   timerInterval: null,
   gameStarted: false,
-  playersMap: {} // { [id]: { name, lastSeen, isHost } }
+  playersMap: {} // { [id]: { name, lastSeen } }
 };
 
-const TOPIC = `checkers_${ROOM_ID.toLowerCase()}`;
+const TOPIC = `checkers_${ROOM_ID.toLowerCase().replace(/[^a-z0-9_-]/g, '')}`;
 const WS_URL = `wss://ntfy.sh/${TOPIC}/ws`;
 const POST_URL = `https://ntfy.sh/${TOPIC}`;
 
@@ -309,21 +355,34 @@ let ws = null;
 function broadcast(payload) {
   fetch(POST_URL, {
     method: 'POST',
+    headers: { 'Content-Type': 'text/plain' },
     body: JSON.stringify(payload)
   }).catch(() => {});
 }
 
+function broadcastPresence() {
+  broadcast({
+    event: 'presence',
+    senderId: MY_ID,
+    senderName: MY_NAME,
+    time: Date.now()
+  });
+}
+
 function connectRealtime() {
-  ws = new WebSocket(WS_URL);
+  // Announce presence immediately via POST
+  broadcastPresence();
+
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    setTimeout(connectRealtime, 2000);
+    return;
+  }
 
   ws.onopen = () => {
-    // Send immediate presence
-    broadcast({
-      event: 'presence',
-      senderId: MY_ID,
-      senderName: MY_NAME,
-      time: Date.now()
-    });
+    // Send immediate presence as soon as WS connection is established
+    broadcastPresence();
   };
 
   ws.onmessage = (evt) => {
@@ -338,18 +397,15 @@ function connectRealtime() {
   ws.onclose = () => {
     setTimeout(connectRealtime, 2000);
   };
+
+  ws.onerror = () => {
+    try { ws.close(); } catch (e) {}
+  };
 }
 
 // Heartbeat every 2 seconds
 setInterval(() => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    broadcast({
-      event: 'presence',
-      senderId: MY_ID,
-      senderName: MY_NAME,
-      time: Date.now()
-    });
-  }
+  broadcastPresence();
   reapOffline();
 }, 2000);
 
@@ -357,19 +413,31 @@ function handleMessage(data) {
   if (!data || !data.senderId) return;
 
   if (data.event === 'presence') {
+    const isNew = !state.playersMap[data.senderId];
     state.playersMap[data.senderId] = {
       name: data.senderName,
       lastSeen: Date.now()
     };
+    if (isNew && data.senderId !== MY_ID) {
+      // Immediately reply with own presence so newcomer gets our info instantly
+      broadcastPresence();
+    }
     renderLobby();
   } else if (data.event === 'move') {
     if (data.senderId !== MY_ID) {
+      state.selectedCell = null;
       game.board = data.board;
       game.currentTurn = data.turn;
       game.winner = data.winner;
       haptic('medium');
-      updateGameView();
-      resetTimer();
+
+      if (!state.gameStarted) {
+        state.gameStarted = true;
+        launchGame();
+      } else {
+        updateGameView();
+        resetTimer();
+      }
 
       if (game.winner !== null) {
         handleGameOver(game.winner);
@@ -379,6 +447,7 @@ function handleMessage(data) {
 }
 
 function reapOffline() {
+  if (state.gameStarted) return; // Never unseat players during active gameplay
   const now = Date.now();
   let changed = false;
   for (const id in state.playersMap) {
@@ -391,7 +460,7 @@ function reapOffline() {
 }
 
 function renderLobby() {
-  // Always include self
+  // Always include self in players map
   state.playersMap[MY_ID] = {
     name: MY_NAME,
     lastSeen: Date.now()
@@ -417,7 +486,7 @@ function renderLobby() {
     state.myColor = (MY_ID === p1Id) ? 1 : -1;
     state.opponentName = (MY_ID === p1Id) ? p2.name : p1.name;
 
-    // Both players connected -> Auto launch game!
+    // Both players connected -> Auto launch game smoothly after short delay so players see green badges
     if (!state.gameStarted) {
       state.gameStarted = true;
       haptic('success');

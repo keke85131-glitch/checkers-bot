@@ -1,42 +1,83 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Шашки</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <!-- screen: waiting -->
-  <div id="screen-waiting" class="screen">
-    <div class="spinner"></div>
-    <p>Ожидаем второго игрока...</p>
-    <p class="room-id"></p>
-  </div>
-
-  <!-- screen: game -->
-  <div id="screen-game" class="screen hidden">
-    <div id="status-bar">
-      <div id="turn-info"></div>
-      <div id="timer">60</div>
+  <!-- Экран лобби комнаты -->
+  <div id="screen-lobby" class="screen">
+    <div class="lobby-header">
+      <h1 class="game-title">Шашки</h1>
+      <div class="room-tag" id="room-tag">#...</div>
     </div>
-    <div id="board-container">
+
+    <div class="players-list">
+      <div class="player-row" id="row-p1">
+        <div class="player-marker white"></div>
+        <div class="player-details">
+          <span class="player-name" id="name-p1">Загрузка...</span>
+          <span class="player-color-label">Белые</span>
+        </div>
+        <span class="status-pill offline" id="status-p1">Не в сети</span>
+      </div>
+
+      <div class="player-row" id="row-p2">
+        <div class="player-marker black"></div>
+        <div class="player-details">
+          <span class="player-name" id="name-p2">Ожидание игрока...</span>
+          <span class="player-color-label">Чёрные</span>
+        </div>
+        <span class="status-pill offline" id="status-p2">Не в сети</span>
+      </div>
+    </div>
+
+    <div class="action-buttons">
+      <button id="btn-share" class="btn btn-primary">Пригласить друга</button>
+      <button id="btn-play-bot" class="btn btn-secondary">Играть с ботом</button>
+    </div>
+  </div>
+  
+  <!-- Экран игры -->
+  <div id="screen-game" class="screen hidden">
+    <!-- Верхний игрок (соперник) -->
+    <div class="game-header">
+      <div class="game-player" id="opp-card">
+        <div class="player-marker" id="opp-marker"></div>
+        <span class="game-player-name" id="opp-name">Соперник</span>
+        <span class="game-player-count" id="opp-count">12</span>
+      </div>
+      <div class="timer" id="timer">60</div>
+    </div>
+
+    <!-- Доска -->
+    <div class="board-wrapper">
       <div id="board"></div>
     </div>
-    <div id="piece-counts">
-      <span id="my-pieces"></span>
-      <span id="opp-pieces"></span>
+
+    <!-- Нижний игрок (я) -->
+    <div class="game-footer">
+      <div class="game-player" id="my-card">
+        <div class="player-marker" id="my-marker"></div>
+        <span class="game-player-name" id="my-name">Ты</span>
+        <span class="game-player-count" id="my-count">12</span>
+      </div>
+      <div class="turn-indicator" id="turn-info">Твой ход</div>
     </div>
   </div>
-
-  <!-- screen: game over -->
+  
+  <!-- Экран окончания игры -->
   <div id="screen-gameover" class="screen hidden">
-    <div id="result-emoji">🏆</div>
-    <div id="result-text"></div>
-    <button id="btn-new-game">Новая игра</button>
+    <div class="gameover-box">
+      <h2 id="result-title">Победа!</h2>
+      <p id="result-desc">Игра завершена</p>
+      <button id="btn-restart" class="btn btn-primary">В лобби</button>
+    </div>
   </div>
-
+  
   <script src="game.js"></script>
 </body>
 </html>
