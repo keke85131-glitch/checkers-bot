@@ -3,91 +3,79 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Шашки Telegram Mini App</title>
+  <title>Шашки</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 </head>
 <body>
-  <!-- screen: waiting -->
-  <div id="screen-waiting" class="screen">
-    <div class="header-icon">♟️</div>
-    <h2>Шашки 8×8</h2>
+  <!-- Экран лобби комнаты -->
+  <div id="screen-lobby" class="screen">
+    <div class="lobby-header">
+      <h1 class="game-title">Шашки</h1>
+      <div class="room-tag" id="room-tag">#...</div>
+    </div>
 
-    <!-- Dynamic Room Card -->
-    <div class="room-card">
-      <div class="room-card-header">
-        <span class="room-title">Комната <span class="room-id-badge">...</span></span>
-        <span id="room-status-badge" class="badge-waiting">🟡 Ожидание</span>
+    <div class="players-list">
+      <div class="player-row" id="row-p1">
+        <div class="player-marker white"></div>
+        <div class="player-details">
+          <span class="player-name" id="name-p1">Загрузка...</span>
+          <span class="player-color-label">Белые</span>
+        </div>
+        <span class="status-pill offline" id="status-p1">Не в сети</span>
       </div>
 
-      <div class="slots-container">
-        <div class="player-slot active" id="slot-white">
-          <div class="slot-avatar">⚪</div>
-          <div class="slot-info">
-            <span class="slot-name" id="white-player-name">Загрузка...</span>
-            <span class="slot-role">Белые • Создатель</span>
-          </div>
-          <span class="slot-status-dot online"></span>
+      <div class="player-row" id="row-p2">
+        <div class="player-marker black"></div>
+        <div class="player-details">
+          <span class="player-name" id="name-p2">Ожидание игрока...</span>
+          <span class="player-color-label">Чёрные</span>
         </div>
-
-        <div class="slot-divider">
-          <span class="vs-badge">VS</span>
-        </div>
-
-        <div class="player-slot empty" id="slot-black">
-          <div class="slot-avatar">⚫</div>
-          <div class="slot-info">
-            <span class="slot-name" id="black-player-name">Свободный слот</span>
-            <span class="slot-role">Чёрные • Игрок 2</span>
-          </div>
-          <span class="slot-status-dot" id="black-status-dot"></span>
-        </div>
-      </div>
-
-      <div class="room-counter" id="room-counter">
-        Участники: <b>[ 👤 1 / 2 👥 ]</b>
+        <span class="status-pill offline" id="status-p2">Не в сети</span>
       </div>
     </div>
 
-    <button id="btn-share" class="btn-primary">📤 Пригласить друга в Telegram</button>
-    <button id="btn-copy" class="btn-secondary">📋 Скопировать ссылку на комнату</button>
-    <button id="btn-play-bot" class="btn-outline">🤖 Играть с ботом (один)</button>
+    <div class="action-buttons">
+      <button id="btn-share" class="btn btn-primary">Пригласить друга</button>
+      <button id="btn-play-bot" class="btn btn-secondary">Играть с ботом</button>
+    </div>
   </div>
   
-  <!-- screen: game -->
+  <!-- Экран игры -->
   <div id="screen-game" class="screen hidden">
-    <!-- Top Player (Opponent) -->
-    <div class="player-bar" id="top-player-bar">
-      <div class="player-avatar-small" id="opp-avatar">⚫</div>
-      <div class="player-bar-info">
-        <span class="player-bar-name" id="opp-name">Соперник</span>
-        <span class="player-bar-count" id="opp-pieces">Шашек: 12</span>
+    <!-- Верхний игрок (соперник) -->
+    <div class="game-header">
+      <div class="game-player" id="opp-card">
+        <div class="player-marker" id="opp-marker"></div>
+        <span class="game-player-name" id="opp-name">Соперник</span>
+        <span class="game-player-count" id="opp-count">12</span>
       </div>
-      <div class="timer-box" id="timer">60</div>
+      <div class="timer" id="timer">60</div>
     </div>
 
-    <div id="board-container">
+    <!-- Доска -->
+    <div class="board-wrapper">
       <div id="board"></div>
     </div>
 
-    <!-- Bottom Player (Me) -->
-    <div class="player-bar" id="bottom-player-bar">
-      <div class="player-avatar-small" id="my-avatar">⚪</div>
-      <div class="player-bar-info">
-        <span class="player-bar-name" id="my-name">Ты</span>
-        <span class="player-bar-count" id="my-pieces">Шашек: 12</span>
+    <!-- Нижний игрок (я) -->
+    <div class="game-footer">
+      <div class="game-player" id="my-card">
+        <div class="player-marker" id="my-marker"></div>
+        <span class="game-player-name" id="my-name">Ты</span>
+        <span class="game-player-count" id="my-count">12</span>
       </div>
-      <div class="turn-badge" id="turn-info">Твой ход</div>
+      <div class="turn-indicator" id="turn-info">Твой ход</div>
     </div>
   </div>
   
-  <!-- screen: game over -->
+  <!-- Экран окончания игры -->
   <div id="screen-gameover" class="screen hidden">
-    <div id="result-emoji">🏆</div>
-    <div id="result-text">Победа!</div>
-    <div id="result-subtext"></div>
-    <button id="btn-new-game" class="btn-primary">Новая партия</button>
+    <div class="gameover-box">
+      <h2 id="result-title">Победа!</h2>
+      <p id="result-desc">Игра завершена</p>
+      <button id="btn-restart" class="btn btn-primary">В лобби</button>
+    </div>
   </div>
   
   <script src="game.js"></script>

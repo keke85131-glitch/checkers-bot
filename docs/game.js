@@ -1,6 +1,6 @@
 /* =================================================================
-   Telegram Checkers Mini App — game.js
-   Dynamic Room Card [ 👤 1/2 ] -> [ 👥 2/2 ], PeerJS P2P & Rules Engine
+   Telegram Checkers — Minimalist Realtime Game
+   Uses ntfy.sh instant WebSockets (100% reliable, zero configuration)
    ================================================================= */
 
 // ---------- Telegram Mini App Init ----------
@@ -8,14 +8,7 @@ const tg = window.Telegram?.WebApp;
 if (tg) {
   tg.ready();
   tg.expand();
-  try {
-    tg.setHeaderColor('#18181a');
-    tg.setBackgroundColor('#18181a');
-  } catch (e) {}
 }
-
-const tgUser = tg?.initDataUnsafe?.user;
-const MY_NAME = tgUser ? (tgUser.first_name + (tgUser.username ? ` (@${tgUser.username})` : '')) : 'Я';
 
 function haptic(type = 'light') {
   try {
@@ -29,69 +22,70 @@ function haptic(type = 'light') {
   } catch (e) {}
 }
 
-// ---------- URL & Room Parameters ----------
+const tgUser = tg?.initDataUnsafe?.user;
+const MY_ID = tgUser?.id ? String(tgUser.id) : ('guest_' + Math.random().toString(36).substring(2, 8));
+const MY_NAME = tgUser 
+  ? (tgUser.first_name + (tgUser.username ? ` (@${tgUser.username})` : ''))
+  : ('Игрок ' + MY_ID.slice(-4));
+
+// ---------- Room ID ----------
 const urlParams = new URLSearchParams(location.search);
 const startParam = tg?.initDataUnsafe?.start_param;
-let ROOM_ID = startParam || urlParams.get('room') || '';
-const isJoiner = Boolean(ROOM_ID);
+let ROOM_ID = (startParam || urlParams.get('room') || '').toUpperCase();
 
 if (!ROOM_ID) {
   ROOM_ID = Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
 // ---------- DOM Elements ----------
-const $screenWaiting   = document.getElementById('screen-waiting');
-const $screenGame      = document.getElementById('screen-game');
-const $screenGameOver  = document.getElementById('screen-gameover');
-const $board           = document.getElementById('board');
-const $turnInfo        = document.getElementById('turn-info');
-const $timer           = document.getElementById('timer');
-const $myPieces        = document.getElementById('my-pieces');
-const $oppPieces       = document.getElementById('opp-pieces');
-const $myName          = document.getElementById('my-name');
-const $oppName         = document.getElementById('opp-name');
-const $myAvatar        = document.getElementById('my-avatar');
-const $oppAvatar       = document.getElementById('opp-avatar');
-const $resultEmoji     = document.getElementById('result-emoji');
-const $resultText      = document.getElementById('result-text');
-const $resultSubtext   = document.getElementById('result-subtext');
-const $btnNewGame      = document.getElementById('btn-new-game');
-const $roomIdBadge     = document.querySelector('.room-id-badge');
-const $roomStatusBadge = document.getElementById('room-status-badge');
-const $roomCounter     = document.getElementById('room-counter');
-const $whitePlayerName = document.getElementById('white-player-name');
-const $blackPlayerName = document.getElementById('black-player-name');
-const $slotBlack       = document.getElementById('slot-black');
-const $blackStatusDot  = document.getElementById('black-status-dot');
-const $btnShare        = document.getElementById('btn-share');
-const $btnCopy         = document.getElementById('btn-copy');
-const $btnPlayBot      = document.getElementById('btn-play-bot');
+const $screenLobby    = document.getElementById('screen-lobby');
+const $screenGame     = document.getElementById('screen-game');
+const $screenGameOver = document.getElementById('screen-gameover');
+const $roomTag        = document.getElementById('room-tag');
+const $nameP1         = document.getElementById('name-p1');
+const $nameP2         = document.getElementById('name-p2');
+const $statusP1       = document.getElementById('status-p1');
+const $statusP2       = document.getElementById('status-p2');
+const $btnShare       = document.getElementById('btn-share');
+const $btnPlayBot     = document.getElementById('btn-play-bot');
+const $btnRestart     = document.getElementById('btn-restart');
+const $board          = document.getElementById('board');
+const $timer          = document.getElementById('timer');
+const $myCard         = document.getElementById('my-card');
+const $oppCard        = document.getElementById('opp-card');
+const $myName         = document.getElementById('my-name');
+const $oppName        = document.getElementById('opp-name');
+const $myCount        = document.getElementById('my-count');
+const $oppCount       = document.getElementById('opp-count');
+const $myMarker       = document.getElementById('my-marker');
+const $oppMarker      = document.getElementById('opp-marker');
+const $turnInfo       = document.getElementById('turn-info');
+const $resultTitle    = document.getElementById('result-title');
+const $resultDesc     = document.getElementById('result-desc');
 
-if ($roomIdBadge) $roomIdBadge.textContent = `#${ROOM_ID}`;
-if ($whitePlayerName) $whitePlayerName.textContent = MY_NAME;
-if ($myName) $myName.textContent = MY_NAME;
+if ($roomTag) $roomTag.textContent = `#${ROOM_ID}`;
 
 // =================================================================
-// Russian Checkers Game Engine
+// Russian Checkers Logic Engine
 // =================================================================
 
 class RussianCheckers {
   constructor() {
-    this.board = this.createInitialBoard();
+    this.board = this.createBoard();
     this.currentTurn = 1; // 1 = White, -1 = Black
     this.winner = null;
   }
 
-  createInitialBoard() {
+  createBoard() {
     const b = Array.from({ length: 8 }, () => Array(8).fill(0));
     for (let r = 0; r < 3; r++) {
       for (let c = 0; c < 8; c++) {
-        if ((r + c) % 2 === 1) b[r][c] = -1;
+        if ((r + c) % 2 === 1) b[r][c] = -1; // Black
       }
     }
     for (let r = 5; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
-        if ((r + c) % 2 === 1) b[r][c] = 1;
+        if ((r + c) % 2 === 1) b[r][c] = 1; // White
       }
     }
     return b;
@@ -114,7 +108,7 @@ class RussianCheckers {
           for (const [dr, dc] of [[-1,-1], [-1,1], [1,-1], [1,1]]) {
             let nr = r + dr, nc = c + dc;
             while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && this.board[nr][nc] === 0) {
-              moves.push({ from_r: r, from_c: c, to_r: nr, to_c: nc, captures: [] });
+              moves.push({ fr: r, fc: c, tr: nr, tc: nc, cap: [] });
               nr += dr;
               nc += dc;
             }
@@ -124,7 +118,7 @@ class RussianCheckers {
           for (const [dr, dc] of dirs) {
             const nr = r + dr, nc = c + dc;
             if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8 && this.board[nr][nc] === 0) {
-              moves.push({ from_r: r, from_c: c, to_r: nr, to_c: nc, captures: [] });
+              moves.push({ fr: r, fc: c, tr: nr, tc: nc, cap: [] });
             }
           }
         }
@@ -140,13 +134,13 @@ class RussianCheckers {
         const piece = this.board[r][c];
         if (!this.owns(player, piece)) continue;
         const isKing = Math.abs(piece) === 2;
-        const seqs = this.captureSequences(r, c, player, isKing, [], this.cloneBoard(this.board));
+        const seqs = this.captureSequences(r, c, player, isKing, [], this.clone(this.board));
         all.push(...seqs);
       }
     }
     if (all.length === 0) return [];
-    const maxLen = Math.max(...all.map(m => m.captures.length));
-    return all.filter(m => m.captures.length === maxLen);
+    const maxLen = Math.max(...all.map(m => m.cap.length));
+    return all.filter(m => m.cap.length === maxLen);
   }
 
   captureSequences(r, c, player, isKing, captured, board) {
@@ -165,7 +159,7 @@ class RussianCheckers {
               const tempBoard = this.applyTemp(board, r, c, nr, nc, [enemyR, enemyC]);
               const further = this.captureSequences(nr, nc, player, true, newCap, tempBoard);
               if (further.length > 0) found.push(...further);
-              else found.push({ from_r: r, from_c: c, to_r: nr, to_c: nc, captures: newCap });
+              else found.push({ fr: r, fc: c, tr: nr, tc: nc, cap: newCap });
             }
             nr += dr;
             nc += dc;
@@ -191,7 +185,7 @@ class RussianCheckers {
             const crowned = (player === 1 && landR === 0) || (player === -1 && landR === 7);
             const further = this.captureSequences(landR, landC, player, isKing || crowned, newCap, tempBoard);
             if (further.length > 0) found.push(...further);
-            else found.push({ from_r: r, from_c: c, to_r: landR, to_c: landC, captures: newCap });
+            else found.push({ fr: r, fc: c, tr: landR, tc: landC, cap: newCap });
           }
         }
       }
@@ -200,7 +194,7 @@ class RussianCheckers {
   }
 
   applyTemp(board, fr, fc, tr, tc, cap) {
-    const copy = this.cloneBoard(board);
+    const copy = this.clone(board);
     const piece = copy[fr][fc];
     copy[fr][fc] = 0;
     copy[tr][tc] = piece;
@@ -208,7 +202,7 @@ class RussianCheckers {
     return copy;
   }
 
-  cloneBoard(b) {
+  clone(b) {
     return b.map(row => [...row]);
   }
 
@@ -222,14 +216,14 @@ class RussianCheckers {
 
   makeMove(fr, fc, tr, tc) {
     const legal = this.getValidMoves(this.currentTurn);
-    const m = legal.find(mv => mv.from_r === fr && mv.from_c === fc && mv.to_r === tr && mv.to_c === tc);
+    const m = legal.find(mv => mv.fr === fr && mv.fc === fc && mv.tr === tr && mv.tc === tc);
     if (!m) return false;
 
     let piece = this.board[fr][fc];
     this.board[fr][fc] = 0;
     this.board[tr][tc] = piece;
 
-    for (const [cr, cc] of m.captures) {
+    for (const [cr, cc] of m.cap) {
       this.board[cr][cc] = 0;
     }
 
@@ -260,7 +254,7 @@ class RussianCheckers {
 }
 
 // =================================================================
-// State & Multiplayer
+// Realtime Sync via ntfy.sh (WebSocket + HTTP POST)
 // =================================================================
 
 const game = new RussianCheckers();
@@ -273,21 +267,169 @@ const state = {
   isBotMode: false,
   timerSeconds: 60,
   timerInterval: null,
-  peer: null,
-  conn: null
+  gameStarted: false,
+  playersMap: {} // { [id]: { name, lastSeen, color } }
 };
 
-function showScreen(name) {
-  $screenWaiting.classList.toggle('hidden', name !== 'waiting');
-  $screenGame.classList.toggle('hidden', name !== 'game');
-  $screenGameOver.classList.toggle('hidden', name !== 'gameover');
+const TOPIC = `tgcheckers_${ROOM_ID.toLowerCase()}`;
+const WS_URL = `wss://ntfy.sh/${TOPIC}/ws`;
+const POST_URL = `https://ntfy.sh/${TOPIC}`;
+
+let ws = null;
+
+function sendBroadcast(payload) {
+  fetch(POST_URL, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }).catch(() => {});
 }
 
-function updateStatus() {
+function initRealtime() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    // Send immediate presence
+    sendBroadcast({
+      event: 'presence',
+      senderId: MY_ID,
+      senderName: MY_NAME
+    });
+  };
+
+  ws.onmessage = (evt) => {
+    try {
+      const msgObj = JSON.parse(evt.data);
+      if (msgObj.event !== 'message' || !msgObj.message) return;
+      const data = JSON.parse(msgObj.message);
+      handleIncoming(data);
+    } catch (e) {}
+  };
+
+  ws.onclose = () => {
+    // Auto reconnect
+    setTimeout(initRealtime, 2000);
+  };
+}
+
+// Heartbeat ping every 2.5s
+setInterval(() => {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    sendBroadcast({
+      event: 'ping',
+      senderId: MY_ID,
+      senderName: MY_NAME
+    });
+  }
+  checkPresences();
+}, 2500);
+
+function handleIncoming(data) {
+  if (!data || !data.senderId) return;
+
+  if (data.event === 'presence' || data.event === 'ping') {
+    state.playersMap[data.senderId] = {
+      name: data.senderName,
+      lastSeen: Date.now()
+    };
+    updateLobby();
+  } else if (data.event === 'move') {
+    if (data.senderId !== MY_ID) {
+      game.board = data.board;
+      game.currentTurn = data.turn;
+      game.winner = data.winner;
+      haptic('medium');
+      updateGameView();
+      resetTimer();
+
+      if (game.winner !== null) {
+        handleGameOver(game.winner);
+      }
+    }
+  }
+}
+
+function checkPresences() {
+  const now = Date.now();
+  let changed = false;
+  for (const id in state.playersMap) {
+    if (id !== MY_ID && (now - state.playersMap[id].lastSeen > 6000)) {
+      delete state.playersMap[id];
+      changed = true;
+    }
+  }
+  if (changed) updateLobby();
+}
+
+function updateLobby() {
+  // Always include myself
+  state.playersMap[MY_ID] = {
+    name: MY_NAME,
+    lastSeen: Date.now()
+  };
+
+  const ids = Object.keys(state.playersMap).sort(); // deterministic order
+  const p1Id = ids[0];
+  const p2Id = ids[1] || null;
+
+  // Player 1 (White)
+  const p1 = state.playersMap[p1Id];
+  $nameP1.textContent = p1.name;
+  $statusP1.textContent = 'Подключён';
+  $statusP1.className = 'status-pill online';
+
+  // Player 2 (Black)
+  if (p2Id) {
+    const p2 = state.playersMap[p2Id];
+    $nameP2.textContent = p2.name;
+    $statusP2.textContent = 'Подключён';
+    $statusP2.className = 'status-pill online';
+
+    // Assign colors deterministically
+    state.myColor = (MY_ID === p1Id) ? 1 : -1;
+    state.opponentName = (MY_ID === p1Id) ? p2.name : p1.name;
+
+    // Both players connected -> Launch Game!
+    if (!state.gameStarted) {
+      state.gameStarted = true;
+      haptic('success');
+      setTimeout(launchGame, 600);
+    }
+  } else {
+    $nameP2.textContent = 'Ожидание игрока...';
+    $statusP2.textContent = 'Не в сети';
+    $statusP2.className = 'status-pill offline';
+    state.myColor = 1;
+  }
+}
+
+// =================================================================
+// Game UI & Interaction
+// =================================================================
+
+function launchGame() {
+  $screenLobby.classList.add('hidden');
+  $screenGameOver.classList.add('hidden');
+  $screenGame.classList.remove('hidden');
+
+  $myName.textContent = MY_NAME;
+  $oppName.textContent = state.opponentName;
+
+  if (state.myColor === 1) {
+    $myMarker.className = 'player-marker white';
+    $oppMarker.className = 'player-marker black';
+  } else {
+    $myMarker.className = 'player-marker black';
+    $oppMarker.className = 'player-marker white';
+  }
+
+  updateGameView();
+  resetTimer();
+}
+
+function updateGameView() {
   const isMyTurn = game.currentTurn === state.myColor;
   $turnInfo.textContent = isMyTurn ? 'Твой ход' : 'Ход соперника';
-  $turnInfo.style.background = isMyTurn ? 'rgba(48,209,88,0.2)' : 'rgba(36,129,204,0.2)';
-  $turnInfo.style.color = isMyTurn ? 'var(--green)' : 'var(--accent)';
+  $turnInfo.className = isMyTurn ? 'turn-indicator active' : 'turn-indicator';
 
   let w = 0, b = 0;
   for (let r = 0; r < 8; r++) {
@@ -297,22 +439,11 @@ function updateStatus() {
     }
   }
 
-  if (state.myColor === 1) {
-    $myPieces.textContent = `Шашек: ${w}`;
-    $oppPieces.textContent = `Шашек: ${b}`;
-    $myAvatar.textContent = '⚪';
-    $oppAvatar.textContent = '⚫';
-  } else {
-    $myPieces.textContent = `Шашек: ${b}`;
-    $oppPieces.textContent = `Шашек: ${w}`;
-    $myAvatar.textContent = '⚫';
-    $oppAvatar.textContent = '⚪';
-  }
-
-  $myName.textContent = MY_NAME;
-  $oppName.textContent = state.opponentName;
+  $myCount.textContent = state.myColor === 1 ? w : b;
+  $oppCount.textContent = state.myColor === 1 ? b : w;
 
   state.validMoves = game.getValidMoves(game.currentTurn);
+  renderBoard();
 }
 
 function renderBoard() {
@@ -336,8 +467,8 @@ function renderBoard() {
 
       if (state.selectedCell) {
         const canMove = state.validMoves.some(
-          m => m.from_r === state.selectedCell.r && m.from_c === state.selectedCell.c &&
-               m.to_r === r && m.to_c === c
+          m => m.fr === state.selectedCell.r && m.fc === state.selectedCell.c &&
+               m.tr === r && m.tc === c
         );
         if (canMove) $cell.classList.add('possible-move');
       }
@@ -363,7 +494,7 @@ function handleCellClick(r, c) {
   const piece = game.board[r][c];
 
   if (game.owns(game.currentTurn, piece)) {
-    const hasMove = state.validMoves.some(m => m.from_r === r && m.from_c === c);
+    const hasMove = state.validMoves.some(m => m.fr === r && m.fc === c);
     if (hasMove) {
       state.selectedCell = { r, c };
       haptic('light');
@@ -375,7 +506,7 @@ function handleCellClick(r, c) {
   if (state.selectedCell) {
     const fr = state.selectedCell.r, fc = state.selectedCell.c;
     const isLegal = state.validMoves.some(
-      m => m.from_r === fr && m.from_c === fc && m.to_r === r && m.to_c === c
+      m => m.fr === fr && m.fc === fc && m.tr === r && m.tc === c
     );
 
     if (isLegal) {
@@ -383,16 +514,17 @@ function handleCellClick(r, c) {
       if (moved) {
         haptic('medium');
         state.selectedCell = null;
-        updateStatus();
-        renderBoard();
+        updateGameView();
         resetTimer();
 
-        if (state.conn && state.conn.open) {
-          state.conn.send({
-            type: 'move',
+        // Broadcast move
+        if (!state.isBotMode) {
+          sendBroadcast({
+            event: 'move',
+            senderId: MY_ID,
             fr, fc, r, c,
             board: game.board,
-            currentTurn: game.currentTurn,
+            turn: game.currentTurn,
             winner: game.winner
           });
         }
@@ -403,14 +535,14 @@ function handleCellClick(r, c) {
         }
 
         if (state.isBotMode && game.currentTurn === -1) {
-          setTimeout(makeBotMove, 400);
+          setTimeout(botMove, 400);
         }
       }
     }
   }
 }
 
-function makeBotMove() {
+function botMove() {
   if (game.winner !== null) return;
   const moves = game.getValidMoves(-1);
   if (moves.length === 0) {
@@ -419,10 +551,9 @@ function makeBotMove() {
     return;
   }
   const choice = moves[Math.floor(Math.random() * moves.length)];
-  game.makeMove(choice.from_r, choice.from_c, choice.to_r, choice.to_c);
+  game.makeMove(choice.fr, choice.fc, choice.tr, choice.tc);
   haptic('light');
-  updateStatus();
-  renderBoard();
+  updateGameView();
   resetTimer();
 
   if (game.winner !== null) {
@@ -456,163 +587,19 @@ function handleGameOver(winner, timeout = false) {
   const won = winner === state.myColor;
   haptic(won ? 'success' : 'error');
 
-  $resultEmoji.textContent = won ? '🏆' : '💀';
-  $resultText.textContent = won ? 'Победа!' : 'Поражение';
-  $resultSubtext.textContent = timeout ? 'Время на ход истекло' : 'Все шашки соперника съедены или заблокированы';
+  $resultTitle.textContent = won ? 'Победа' : 'Поражение';
+  $resultDesc.textContent = timeout ? 'Время на ход истекло' : 'Игра завершена';
 
-  showScreen('gameover');
+  $screenGame.classList.add('hidden');
+  $screenGameOver.classList.remove('hidden');
 }
 
-// =================================================================
-// Dynamic Room Card & PeerJS P2P Connection
-// =================================================================
-
-function updateWaitingRoomCard(connected, oppName) {
-  if (connected) {
-    if ($roomStatusBadge) {
-      $roomStatusBadge.textContent = '🟢 В игре';
-      $roomStatusBadge.className = 'badge-ready';
-    }
-    if ($blackPlayerName) $blackPlayerName.textContent = oppName;
-    if ($slotBlack) $slotBlack.className = 'player-slot active';
-    if ($blackStatusDot) $blackStatusDot.className = 'slot-status-dot online';
-    if ($roomCounter) $roomCounter.innerHTML = 'Участники: <b>[ 👥 2 / 2 ]</b>';
-  } else {
-    if ($roomStatusBadge) {
-      $roomStatusBadge.textContent = '🟡 Ожидание';
-      $roomStatusBadge.className = 'badge-waiting';
-    }
-    if ($slotBlack) $slotBlack.className = 'player-slot empty';
-    if ($blackStatusDot) $blackStatusDot.className = 'slot-status-dot';
-    if ($roomCounter) $roomCounter.innerHTML = 'Участники: <b>[ 👤 1 / 2 👥 ]</b>';
-  }
-}
-
-function initP2P() {
-  const hostPeerId = `checkers_host_${ROOM_ID.toLowerCase()}`;
-
-  if (isJoiner && urlParams.get('join') === '1') {
-    state.peer = new Peer();
-    state.peer.on('open', () => {
-      const conn = state.peer.connect(hostPeerId, { reliable: true });
-      setupConnection(conn, false);
-    });
-    state.peer.on('error', () => {
-      becomeHost(hostPeerId);
-    });
-  } else {
-    becomeHost(hostPeerId);
-  }
-}
-
-function becomeHost(hostId) {
-  state.myColor = 1; // Host = White
-  updateWaitingRoomCard(false);
-
-  state.peer = new Peer(hostId);
-
-  state.peer.on('open', () => {
-    console.log('Host registered room:', hostId);
-  });
-
-  state.peer.on('connection', (conn) => {
-    setupConnection(conn, true);
-  });
-
-  state.peer.on('error', (err) => {
-    // If room already hosted, join as player 2
-    state.peer.destroy();
-    state.peer = new Peer();
-    state.peer.on('open', () => {
-      const conn = state.peer.connect(hostId, { reliable: true });
-      setupConnection(conn, false);
-    });
-  });
-}
-
-function setupConnection(conn, isHost) {
-  state.conn = conn;
-
-  conn.on('open', () => {
-    haptic('success');
-
-    if (!isHost) {
-      // Guest sends their name to host
-      conn.send({
-        type: 'join',
-        name: MY_NAME
-      });
-    }
-  });
-
-  conn.on('data', (data) => {
-    if (data.type === 'join') {
-      // Host received guest join
-      state.opponentName = data.name || 'Игрок 2';
-      updateWaitingRoomCard(true, state.opponentName);
-
-      // Send welcome back to guest
-      conn.send({
-        type: 'welcome',
-        hostName: MY_NAME,
-        board: game.board,
-        currentTurn: game.currentTurn
-      });
-
-      // Launch after brief visual update
-      setTimeout(startGame, 900);
-    } else if (data.type === 'welcome') {
-      // Guest received welcome
-      state.myColor = -1; // Guest plays Black
-      state.opponentName = data.hostName || 'Игрок 1';
-      game.board = data.board;
-      game.currentTurn = data.currentTurn;
-
-      if ($whitePlayerName) $whitePlayerName.textContent = state.opponentName;
-      if ($blackPlayerName) $blackPlayerName.textContent = MY_NAME;
-      updateWaitingRoomCard(true, MY_NAME);
-
-      setTimeout(startGame, 900);
-    } else if (data.type === 'move') {
-      game.board = data.board;
-      game.currentTurn = data.currentTurn;
-      game.winner = data.winner;
-      haptic('medium');
-      updateStatus();
-      renderBoard();
-      resetTimer();
-
-      if (game.winner !== null) {
-        handleGameOver(game.winner);
-      }
-    }
-  });
-
-  conn.on('close', () => {
-    if (game.winner === null) {
-      alert('Соперник вышел из комнаты');
-      location.reload();
-    }
-  });
-}
-
-function startGame() {
-  showScreen('game');
-  updateStatus();
-  renderBoard();
-  resetTimer();
-}
-
-// ---------- Share & Links ----------
-function getInviteLink() {
-  return `https://t.me/gameddd_bot/app?startapp=${ROOM_ID}`;
-}
-
+// ---------- Button Handlers ----------
 if ($btnShare) {
   $btnShare.addEventListener('click', () => {
     haptic('light');
-    const link = getInviteLink();
-    const text = `Сыграем в шашки в комнате #${ROOM_ID}? ♟️`;
+    const link = `https://t.me/gameddd_bot/app?startapp=${ROOM_ID}`;
+    const text = `Сыграем в шашки в комнате #${ROOM_ID}?`;
     const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(text)}`;
 
     if (tg?.openTelegramLink) {
@@ -623,34 +610,22 @@ if ($btnShare) {
   });
 }
 
-if ($btnCopy) {
-  $btnCopy.addEventListener('click', () => {
-    haptic('light');
-    const link = getInviteLink();
-    navigator.clipboard.writeText(link).then(() => {
-      $btnCopy.textContent = '✅ Ссылка скопирована!';
-      setTimeout(() => { $btnCopy.textContent = '📋 Скопировать ссылку на комнату'; }, 2000);
-    }).catch(() => {
-      prompt('Скопируй ссылку:', link);
-    });
-  });
-}
-
 if ($btnPlayBot) {
   $btnPlayBot.addEventListener('click', () => {
     haptic('medium');
     state.isBotMode = true;
     state.myColor = 1;
-    state.opponentName = '🤖 Робот';
-    startGame();
+    state.opponentName = 'Бот';
+    launchGame();
   });
 }
 
-if ($btnNewGame) {
-  $btnNewGame.addEventListener('click', () => {
+if ($btnRestart) {
+  $btnRestart.addEventListener('click', () => {
     location.reload();
   });
 }
 
-// Run P2P room connection
-initP2P();
+// Start connection
+initRealtime();
+updateLobby();

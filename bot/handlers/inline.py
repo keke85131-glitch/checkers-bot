@@ -19,21 +19,19 @@ router = Router()
 async def inline_checkers(query: InlineQuery):
     """
     Inline-режим: пользователь пишет @gameddd_bot в любом чате.
-    Формирует изолированную игровую комнату с карточкой статуса.
     """
     room_id = uuid.uuid4().hex[:6].upper()
     user_name = query.from_user.first_name
     if query.from_user.username:
         user_name += f" (@{query.from_user.username})"
 
-    # Нативная ссылка Telegram Mini App
     app_url = f"https://t.me/gameddd_bot/app?startapp={room_id}"
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🎮 Войти в комнату",
+                    text="Войти в игру",
                     url=app_url,
                 )
             ]
@@ -41,20 +39,16 @@ async def inline_checkers(query: InlineQuery):
     )
 
     message_text = (
-        f"♟️ <b>Изолированная комната #{room_id}</b>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"Статус: 🟡 <b>Ожидание соперника</b>\n"
-        f"Участники: <b>[ 👤 1 / 2 👥 ]</b>\n\n"
-        f"⚪ <b>Белые:</b> {user_name} <i>(в игре)</i>\n"
-        f"⚫ <b>Чёрные:</b> <i>[ свободно — жми кнопку ]</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
-        f"Нажми кнопку ниже, чтобы открыть Mini App!"
+        f"<b>Шашки • Комната #{room_id}</b>\n\n"
+        f"Белые: {user_name}\n"
+        f"Чёрные: [ Ожидание игрока ]\n\n"
+        f"Нажмите кнопку ниже, чтобы присоединиться к партии."
     )
 
     result = InlineQueryResultArticle(
         id=room_id,
-        title=f"♟️ Создать комнату #{room_id} [ 👤 1 / 2 👥 ]",
-        description="Отправить приглашение сыграть в шашки в этот чат",
+        title=f"Создать партию #{room_id}",
+        description=f"Пригласить в шашки ({user_name})",
         thumbnail_url="https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/265f.png",
         input_message_content=InputTextMessageContent(
             message_text=message_text,
@@ -63,9 +57,8 @@ async def inline_checkers(query: InlineQuery):
         reply_markup=keyboard,
     )
 
-    # Кнопка над результатами поиска
     button = InlineQueryResultsButton(
-        text="🎮 Быстрая игра в шашки",
+        text="Открыть шашки",
         web_app=WebAppInfo(url=f"{FRONTEND_URL}?room={room_id}"),
     )
 
