@@ -54,7 +54,7 @@ async def cmd_start(message: Message):
             [
                 InlineKeyboardButton(
                     text="🎮 Открыть шашки",
-                    web_app=WebAppInfo(url=FRONTEND_URL),
+                    url="https://t.me/gameddd_bot/app",
                 )
             ],
             [
