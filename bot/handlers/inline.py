@@ -24,11 +24,18 @@ logger = logging.getLogger(__name__)
 router = Router()
 room_manager = RoomManager()
 
+# Кастомные анимированные эмодзи Telegram
+EMOJI_WHITE_CHECKER = '<tg-emoji emoji-id="5470071975978251466">⚪</tg-emoji>'
+EMOJI_BLACK_CHECKER = '<tg-emoji emoji-id="5469981541146862363">⚫</tg-emoji>'
+EMOJI_GREEN_ONLINE  = '<tg-emoji emoji-id="5469988022252514573">🟢</tg-emoji>'
+EMOJI_GRAY_OFFLINE  = '<tg-emoji emoji-id="5469817348842107485">🔘</tg-emoji>'
+EMOJI_TROPHY        = '<tg-emoji emoji-id="5467724445638504471">🏆</tg-emoji>'
+
 
 async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
     """
     Динамически обновляет карточку партии в чате Telegram через editMessageText по inline_message_id.
-    Реагирует на вход игроков, закрытие/сворачивание (дисконнект), ходы и завершение партии.
+    Использует официальные кастомные эмодзи бота для живого статуса игроков и игры.
     """
     if bot is None:
         bot = get_bot()
@@ -63,21 +70,24 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
 
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ ⚪ <b>Белые:</b> {p1_name}\n"
-            f"└ ⚫ <b>Чёрные:</b> {p2_name}\n\n"
-            f"🏆 <b>Победитель:</b> {winner_name}"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name}\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name}\n\n"
+            f"{EMOJI_TROPHY} <b>Победитель:</b> {winner_name}"
         )
         button_text = "🔄 Новая игра"
 
     # 3. Если один из игроков свернул / вышел:
     elif room.is_full and (p1 is not None and p2 is not None) and (not p1.online or not p2.online):
+        ind_p1 = EMOJI_GREEN_ONLINE if p1.online else EMOJI_GRAY_OFFLINE
         status_p1 = "В игре" if p1.online else "Отошёл"
+
+        ind_p2 = EMOJI_GREEN_ONLINE if p2.online else EMOJI_GRAY_OFFLINE
         status_p2 = "В игре" if p2.online else "Отошёл"
 
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ ⚪ <b>Белые:</b> {p1_name} • <i>{status_p1}</i>\n"
-            f"└ ⚫ <b>Чёрные:</b> {p2_name} • <i>{status_p2}</i>\n\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {ind_p1} <i>{status_p1}</i>\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {ind_p2} <i>{status_p2}</i>\n\n"
             f"<b>Статус:</b> Ожидание возвращения игрока..."
         )
         button_text = "🎮 Вернуться в игру"
@@ -87,8 +97,8 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         turn_color = "Белых" if game.current_turn == 1 else "Чёрных"
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ ⚪ <b>Белые:</b> {p1_name} • <i>В игре</i>\n"
-            f"└ ⚫ <b>Чёрные:</b> {p2_name} • <i>В игре</i>\n\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В игре</i>\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {EMOJI_GREEN_ONLINE} <i>В игре</i>\n\n"
             f"<b>Статус:</b> Партия идёт • Ход {turn_color}"
         )
         button_text = "🎮 Открыть партию"
@@ -97,8 +107,8 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
     else:
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ ⚪ <b>Белые:</b> {p1_name} • <i>В сети</i>\n"
-            f"└ ⚫ <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
             f"<b>Статус:</b> Ожидание второго игрока"
         )
         button_text = "🎮 Войти в игру"
@@ -135,7 +145,7 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
 async def inline_checkers(query: InlineQuery):
     """
     Inline-режим: пользователь пишет @gameddd_bot в любом чате (ЛС или группа).
-    Генерирует карточку партии с древовидной структурой и кнопкой [ 🎮 Войти в игру ].
+    Генерирует карточку партии с кастомными эмодзи и кнопкой [ 🎮 Войти в игру ].
     """
     q = query.query.strip().upper()
     if q and len(q) <= 12 and q.isalnum():
@@ -167,8 +177,8 @@ async def inline_checkers(query: InlineQuery):
 
     message_text = (
         f"<b>Шашки 8×8 • Комната #{room_id}</b>\n\n"
-        f"┌ ⚪ <b>Белые:</b> {safe_user_name} • <i>В сети</i>\n"
-        f"└ ⚫ <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
+        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
+        f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
         f"<b>Статус:</b> Ожидание второго игрока"
     )
 
