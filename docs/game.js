@@ -1,13 +1,15 @@
 /* =================================================================
    Telegram Checkers — Minimalist Realtime Game
-   Uses ntfy.sh instant WebSockets (100% reliable, zero configuration)
+   Bulletproof Room Discovery & Instant Realtime WebSocket Sync
    ================================================================= */
 
 // ---------- Telegram Mini App Init ----------
 const tg = window.Telegram?.WebApp;
 if (tg) {
-  tg.ready();
-  tg.expand();
+  try {
+    tg.ready();
+    tg.expand();
+  } catch (e) {}
 }
 
 function haptic(type = 'light') {
@@ -22,20 +24,38 @@ function haptic(type = 'light') {
   } catch (e) {}
 }
 
+// ---------- User Identity ----------
 const tgUser = tg?.initDataUnsafe?.user;
-const MY_ID = tgUser?.id ? String(tgUser.id) : ('guest_' + Math.random().toString(36).substring(2, 8));
+const MY_ID = tgUser?.id ? String(tgUser.id) : ('u_' + Math.random().toString(36).substring(2, 8));
 const MY_NAME = tgUser 
   ? (tgUser.first_name + (tgUser.username ? ` (@${tgUser.username})` : ''))
   : ('Игрок ' + MY_ID.slice(-4));
 
-// ---------- Room ID ----------
-const urlParams = new URLSearchParams(location.search);
-const startParam = tg?.initDataUnsafe?.start_param;
-let ROOM_ID = (startParam || urlParams.get('room') || '').toUpperCase();
+// ---------- Bulletproof Room ID Extraction ----------
+function resolveRoomId() {
+  // 1. From Telegram WebApp SDK
+  if (tg?.initDataUnsafe?.start_param) {
+    return tg.initDataUnsafe.start_param.toUpperCase();
+  }
 
-if (!ROOM_ID) {
-  ROOM_ID = Math.random().toString(36).substring(2, 8).toUpperCase();
+  // 2. From search query (?startapp=... or ?tgWebAppStartParam=... or ?room=...)
+  const sParams = new URLSearchParams(window.location.search);
+  const fromSearch = sParams.get('startapp') || sParams.get('tgWebAppStartParam') || sParams.get('room');
+  if (fromSearch) return fromSearch.toUpperCase();
+
+  // 3. From URL hash (#tgWebAppStartParam=... or #startapp=...)
+  if (window.location.hash) {
+    const rawHash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+    const hParams = new URLSearchParams(rawHash);
+    const fromHash = hParams.get('tgWebAppStartParam') || hParams.get('startapp') || hParams.get('room');
+    if (fromHash) return fromHash.toUpperCase();
+  }
+
+  // 4. Default: generate room ID
+  return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
+
+const ROOM_ID = resolveRoomId();
 
 // ---------- DOM Elements ----------
 const $screenLobby    = document.getElementById('screen-lobby');
@@ -51,8 +71,6 @@ const $btnPlayBot     = document.getElementById('btn-play-bot');
 const $btnRestart     = document.getElementById('btn-restart');
 const $board          = document.getElementById('board');
 const $timer          = document.getElementById('timer');
-const $myCard         = document.getElementById('my-card');
-const $oppCard        = document.getElementById('opp-card');
 const $myName         = document.getElementById('my-name');
 const $oppName        = document.getElementById('opp-name');
 const $myCount        = document.getElementById('my-count');
@@ -63,7 +81,18 @@ const $turnInfo       = document.getElementById('turn-info');
 const $resultTitle    = document.getElementById('result-title');
 const $resultDesc     = document.getElementById('result-desc');
 
+// Initialize DOM with immediate values (never show "Загрузка..." or "#...")
 if ($roomTag) $roomTag.textContent = `#${ROOM_ID}`;
+if ($nameP1) $nameP1.textContent = MY_NAME;
+if ($statusP1) {
+  $statusP1.textContent = 'Подключён';
+  $statusP1.className = 'status-pill online';
+}
+if ($nameP2) $nameP2.textContent = 'Ожидание игрока...';
+if ($statusP2) {
+  $statusP2.textContent = 'Не в сети';
+  $statusP2.className = 'status-pill offline';
+}
 
 // =================================================================
 // Russian Checkers Logic Engine
@@ -254,7 +283,7 @@ class RussianCheckers {
 }
 
 // =================================================================
-// Realtime Sync via ntfy.sh (WebSocket + HTTP POST)
+// Realtime WebSocket Sync Engine
 // =================================================================
 
 const game = new RussianCheckers();
@@ -268,31 +297,32 @@ const state = {
   timerSeconds: 60,
   timerInterval: null,
   gameStarted: false,
-  playersMap: {} // { [id]: { name, lastSeen, color } }
+  playersMap: {} // { [id]: { name, lastSeen, isHost } }
 };
 
-const TOPIC = `tgcheckers_${ROOM_ID.toLowerCase()}`;
+const TOPIC = `checkers_${ROOM_ID.toLowerCase()}`;
 const WS_URL = `wss://ntfy.sh/${TOPIC}/ws`;
 const POST_URL = `https://ntfy.sh/${TOPIC}`;
 
 let ws = null;
 
-function sendBroadcast(payload) {
+function broadcast(payload) {
   fetch(POST_URL, {
     method: 'POST',
     body: JSON.stringify(payload)
   }).catch(() => {});
 }
 
-function initRealtime() {
+function connectRealtime() {
   ws = new WebSocket(WS_URL);
 
   ws.onopen = () => {
     // Send immediate presence
-    sendBroadcast({
+    broadcast({
       event: 'presence',
       senderId: MY_ID,
-      senderName: MY_NAME
+      senderName: MY_NAME,
+      time: Date.now()
     });
   };
 
@@ -301,37 +331,37 @@ function initRealtime() {
       const msgObj = JSON.parse(evt.data);
       if (msgObj.event !== 'message' || !msgObj.message) return;
       const data = JSON.parse(msgObj.message);
-      handleIncoming(data);
+      handleMessage(data);
     } catch (e) {}
   };
 
   ws.onclose = () => {
-    // Auto reconnect
-    setTimeout(initRealtime, 2000);
+    setTimeout(connectRealtime, 2000);
   };
 }
 
-// Heartbeat ping every 2.5s
+// Heartbeat every 2 seconds
 setInterval(() => {
   if (ws && ws.readyState === WebSocket.OPEN) {
-    sendBroadcast({
-      event: 'ping',
+    broadcast({
+      event: 'presence',
       senderId: MY_ID,
-      senderName: MY_NAME
+      senderName: MY_NAME,
+      time: Date.now()
     });
   }
-  checkPresences();
-}, 2500);
+  reapOffline();
+}, 2000);
 
-function handleIncoming(data) {
+function handleMessage(data) {
   if (!data || !data.senderId) return;
 
-  if (data.event === 'presence' || data.event === 'ping') {
+  if (data.event === 'presence') {
     state.playersMap[data.senderId] = {
       name: data.senderName,
       lastSeen: Date.now()
     };
-    updateLobby();
+    renderLobby();
   } else if (data.event === 'move') {
     if (data.senderId !== MY_ID) {
       game.board = data.board;
@@ -348,26 +378,26 @@ function handleIncoming(data) {
   }
 }
 
-function checkPresences() {
+function reapOffline() {
   const now = Date.now();
   let changed = false;
   for (const id in state.playersMap) {
-    if (id !== MY_ID && (now - state.playersMap[id].lastSeen > 6000)) {
+    if (id !== MY_ID && (now - state.playersMap[id].lastSeen > 7000)) {
       delete state.playersMap[id];
       changed = true;
     }
   }
-  if (changed) updateLobby();
+  if (changed) renderLobby();
 }
 
-function updateLobby() {
-  // Always include myself
+function renderLobby() {
+  // Always include self
   state.playersMap[MY_ID] = {
     name: MY_NAME,
     lastSeen: Date.now()
   };
 
-  const ids = Object.keys(state.playersMap).sort(); // deterministic order
+  const ids = Object.keys(state.playersMap).sort();
   const p1Id = ids[0];
   const p2Id = ids[1] || null;
 
@@ -384,11 +414,10 @@ function updateLobby() {
     $statusP2.textContent = 'Подключён';
     $statusP2.className = 'status-pill online';
 
-    // Assign colors deterministically
     state.myColor = (MY_ID === p1Id) ? 1 : -1;
     state.opponentName = (MY_ID === p1Id) ? p2.name : p1.name;
 
-    // Both players connected -> Launch Game!
+    // Both players connected -> Auto launch game!
     if (!state.gameStarted) {
       state.gameStarted = true;
       haptic('success');
@@ -403,7 +432,7 @@ function updateLobby() {
 }
 
 // =================================================================
-// Game UI & Interaction
+// Game Loop & UI
 // =================================================================
 
 function launchGame() {
@@ -517,9 +546,8 @@ function handleCellClick(r, c) {
         updateGameView();
         resetTimer();
 
-        // Broadcast move
         if (!state.isBotMode) {
-          sendBroadcast({
+          broadcast({
             event: 'move',
             senderId: MY_ID,
             fr, fc, r, c,
@@ -626,6 +654,6 @@ if ($btnRestart) {
   });
 }
 
-// Start connection
-initRealtime();
-updateLobby();
+// Start connection & populate UI
+connectRealtime();
+renderLobby();
