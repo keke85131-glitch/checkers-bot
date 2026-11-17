@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Шашки</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <!-- screen: waiting -->
+  <div id="screen-waiting" class="screen">
+    <div class="spinner"></div>
+    <p>Ожидаем второго игрока...</p>
+    <p class="room-id"></p>
+  </div>
+
+  <!-- screen: game -->
+  <div id="screen-game" class="screen hidden">
+    <div id="status-bar">
+      <div id="turn-info"></div>
+      <div id="timer">60</div>
+    </div>
+    <div id="board-container">
+      <div id="board"></div>
+    </div>
+    <div id="piece-counts">
+      <span id="my-pieces"></span>
+      <span id="opp-pieces"></span>
+    </div>
+  </div>
+
+  <!-- screen: game over -->
+  <div id="screen-gameover" class="screen hidden">
+    <div id="result-emoji">🏆</div>
+    <div id="result-text"></div>
+    <button id="btn-new-game">Новая игра</button>
+  </div>
+
+  <script src="game.js"></script>
+</body>
+</html>
