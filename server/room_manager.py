@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from typing import Dict, Optional
+import uuid
 
 from server.game_logic import CheckersGame
 
@@ -29,6 +30,8 @@ class Room:
     current_turn: int = 1
     timer_task: Optional[asyncio.Task] = field(default=None, compare=False)
     timer_seconds: int = 60
+    inline_message_id: Optional[str] = None
+    creator_name: Optional[str] = None
 
     @property
     def is_full(self) -> bool:
@@ -41,6 +44,14 @@ class Room:
     @property
     def players_count(self) -> int:
         return len(self.players)
+
+    @property
+    def white_player(self) -> Optional[PlayerInfo]:
+        return next((p for p in self.players.values() if p.color == 1), None)
+
+    @property
+    def black_player(self) -> Optional[PlayerInfo]:
+        return next((p for p in self.players.values() if p.color == -1), None)
 
     def color_for(self, player_id: str) -> Optional[int]:
         info = self.players.get(player_id)
@@ -55,6 +66,11 @@ class RoomManager:
             cls._instance = super().__new__(cls)
             cls._instance._rooms: Dict[str, Room] = {}
         return cls._instance
+
+    def create_room(self) -> str:
+        room_id = uuid.uuid4().hex[:6].upper()
+        self.get_or_create_room(room_id)
+        return room_id
 
     def get_or_create_room(self, room_id: str) -> Room:
         clean_id = room_id.upper().strip()

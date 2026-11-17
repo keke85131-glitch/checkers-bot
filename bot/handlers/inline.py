@@ -1,27 +1,141 @@
 import html
+import logging
+from typing import Optional
 import uuid
 
-from aiogram import Router
+from aiogram import Bot, Router
 from aiogram.types import (
+    ChosenInlineResult,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
     InlineQuery,
     InlineQueryResultArticle,
-    InputTextMessageContent,
-    InlineKeyboardMarkup,
-    InlineKeyboardButton,
     InlineQueryResultsButton,
+    InputTextMessageContent,
     WebAppInfo,
 )
 
 from bot.config import FRONTEND_URL
+from bot.instance import get_bot
+from server.room_manager import RoomManager
+
+logger = logging.getLogger(__name__)
 
 router = Router()
+room_manager = RoomManager()
+
+
+async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
+    """
+    Динамически обновляет карточку партии в чате Telegram через editMessageText по inline_message_id.
+    Реагирует на вход игроков, закрытие/сворачивание (дисконнект), ходы и завершение партии.
+    """
+    if bot is None:
+        bot = get_bot()
+    if not bot:
+        logger.warning("No bot instance available to update message for room %s", room_id)
+        return False
+
+    room = room_manager.get_room(room_id)
+    if not room or not room.inline_message_id:
+        logger.debug("Room %s has no inline_message_id yet", room_id)
+        return False
+
+    clean_room_id = room.room_id.upper()
+    app_url = f"https://t.me/gameddd_bot/app?startapp={clean_room_id}"
+
+    p1 = room.white_player
+    p2 = room.black_player
+
+    p1_name = html.escape(p1.player_name) if p1 else html.escape(room.creator_name or "Белые")
+    p2_name = html.escape(p2.player_name) if p2 else "Ожидание соперника..."
+
+    game = room.game
+
+    # 4. Завершение партии: победа / поражение / таймаут
+    if game.winner is not None:
+        if game.winner == 1:
+            winner_name = f"{p1_name} (Белые)"
+        elif game.winner == -1:
+            winner_name = f"{p2_name} (Чёрные)"
+        else:
+            winner_name = "Ничья"
+
+        text = (
+            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+            f"┌ ⚪ <b>Белые:</b> {p1_name}\n"
+            f"└ ⚫ <b>Чёрные:</b> {p2_name}\n\n"
+            f"🏆 <b>Победитель:</b> {winner_name}"
+        )
+        button_text = "🔄 Новая игра"
+
+    # 3. Если один из игроков свернул / вышел:
+    elif room.is_full and (p1 is not None and p2 is not None) and (not p1.online or not p2.online):
+        status_p1 = "В игре" if p1.online else "Отошёл"
+        status_p2 = "В игре" if p2.online else "Отошёл"
+
+        text = (
+            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+            f"┌ ⚪ <b>Белые:</b> {p1_name} • <i>{status_p1}</i>\n"
+            f"└ ⚫ <b>Чёрные:</b> {p2_name} • <i>{status_p2}</i>\n\n"
+            f"<b>Статус:</b> Ожидание возвращения игрока..."
+        )
+        button_text = "🎮 Вернуться в игру"
+
+    # 2. Оба в игре:
+    elif room.is_full and (p1 is not None and p2 is not None):
+        turn_color = "Белых" if game.current_turn == 1 else "Чёрных"
+        text = (
+            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+            f"┌ ⚪ <b>Белые:</b> {p1_name} • <i>В игре</i>\n"
+            f"└ ⚫ <b>Чёрные:</b> {p2_name} • <i>В игре</i>\n\n"
+            f"<b>Статус:</b> Партия идёт • Ход {turn_color}"
+        )
+        button_text = "🎮 Открыть партию"
+
+    # 1. Ожидание второго игрока:
+    else:
+        text = (
+            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+            f"┌ ⚪ <b>Белые:</b> {p1_name} • <i>В сети</i>\n"
+            f"└ ⚫ <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
+            f"<b>Статус:</b> Ожидание второго игрока"
+        )
+        button_text = "🎮 Войти в игру"
+
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=button_text,
+                    url=app_url,
+                )
+            ]
+        ]
+    )
+
+    try:
+        await bot.edit_message_text(
+            inline_message_id=room.inline_message_id,
+            text=text,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+        logger.info("Updated inline message for room %s (status: %s)", clean_room_id, button_text)
+        return True
+    except Exception as e:
+        err_msg = str(e).lower()
+        if "message is not modified" in err_msg:
+            return True
+        logger.warning("Failed to edit inline message for room %s: %s", clean_room_id, e)
+        return False
 
 
 @router.inline_query()
 async def inline_checkers(query: InlineQuery):
     """
     Inline-режим: пользователь пишет @gameddd_bot в любом чате (ЛС или группа).
-    Отправляет карточку партии с чистым текстом без лишних эмодзи и кнопкой [ Войти в игру ].
+    Генерирует карточку партии с древовидной структурой и кнопкой [ 🎮 Войти в игру ].
     """
     q = query.query.strip().upper()
     if q and len(q) <= 12 and q.isalnum():
@@ -34,13 +148,17 @@ async def inline_checkers(query: InlineQuery):
         user_name += f" (@{query.from_user.username})"
     safe_user_name = html.escape(user_name)
 
+    room = room_manager.get_or_create_room(room_id)
+    if not room.creator_name:
+        room.creator_name = user_name
+
     app_url = f"https://t.me/gameddd_bot/app?startapp={room_id}"
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="Войти в игру",
+                    text="🎮 Войти в игру",
                     url=app_url,
                 )
             ]
@@ -48,10 +166,10 @@ async def inline_checkers(query: InlineQuery):
     )
 
     message_text = (
-        f"<b>Шашки • Комната #{room_id}</b>\n\n"
-        f"Белые: {safe_user_name}\n"
-        f"Чёрные: [ Ожидание игрока ]\n\n"
-        f"Нажмите кнопку ниже, чтобы присоединиться к партии."
+        f"<b>Шашки 8×8 • Комната #{room_id}</b>\n\n"
+        f"┌ ⚪ <b>Белые:</b> {safe_user_name} • <i>В сети</i>\n"
+        f"└ ⚫ <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
+        f"<b>Статус:</b> Ожидание второго игрока"
     )
 
     result = InlineQueryResultArticle(
@@ -77,3 +195,29 @@ async def inline_checkers(query: InlineQuery):
         is_personal=True,
         button=button,
     )
+
+
+@router.chosen_inline_result()
+async def on_chosen_inline_result(chosen: ChosenInlineResult, bot: Bot):
+    """
+    Вызывается при отправке пользователем карточки партии в чат.
+    Telegram передаёт chosen.inline_message_id, привязываем его к комнате.
+    """
+    room_id = chosen.result_id.upper().strip()
+    inline_msg_id = chosen.inline_message_id
+    logger.info("Chosen inline result for room %s, inline_message_id: %s", room_id, inline_msg_id)
+
+    if not inline_msg_id:
+        return
+
+    room = room_manager.get_or_create_room(room_id)
+    room.inline_message_id = inline_msg_id
+
+    user_name = chosen.from_user.first_name or "Игрок"
+    if chosen.from_user.username:
+        user_name += f" (@{chosen.from_user.username})"
+
+    if not room.creator_name:
+        room.creator_name = user_name
+
+    await update_room_message(room_id, bot=bot)

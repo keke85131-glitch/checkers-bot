@@ -52,6 +52,8 @@ from fastapi.staticfiles import StaticFiles
 
 from server.game_logic import CheckersGame
 from server.room_manager import Room, RoomManager
+from bot.handlers.inline import update_room_message
+from bot.instance import set_bot
 
 FRONTEND_URL = os.getenv("FRONTEND_URL", "*")
 TURN_TIMEOUT = 60  # seconds
@@ -70,11 +72,15 @@ async def lifespan(app: FastAPI):
             from bot.handlers import inline, game
 
             bot = Bot(token=bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+            set_bot(bot)
             dp = Dispatcher()
             dp.include_router(game.router)
             dp.include_router(inline.router)
             bot_task = asyncio.create_task(
-                dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+                dp.start_polling(
+                    bot,
+                    allowed_updates=dp.resolve_used_update_types(),
+                )
             )
             logger.info("Telegram Bot polling started in background!")
         except Exception as e:
@@ -197,6 +203,7 @@ async def _run_timer(room: Room) -> None:
         room.game.winner = -loser
         await _broadcast(room, {"type": "timeout", "loser": loser})
         await _send_state_to_all(room)
+        await update_room_message(room.room_id)
 
     except asyncio.CancelledError:
         pass  # Timer was cancelled because a move was made
@@ -259,9 +266,11 @@ async def websocket_endpoint(
     # Broadcast updated room state to all players in this room
     await _send_state_to_all(room)
 
-    # If both players are now connected, start the timer
-    if room.is_full and (room.timer_task is None or room.timer_task.done()):
-        _reset_timer(room)
+    # If both players are now connected, start the timer and update Telegram inline card
+    if room.is_full:
+        await update_room_message(room.room_id)
+        if room.timer_task is None or room.timer_task.done():
+            _reset_timer(room)
 
     try:
         while True:
@@ -286,6 +295,7 @@ async def websocket_endpoint(
                 room.players[player_id].online = False
                 room.players[player_id].websocket = None
                 await _send_state_to_all(room)
+                await update_room_message(room.room_id)
 
 
 async def _handle_move(
@@ -320,10 +330,12 @@ async def _handle_move(
     # Move accepted — reset timer and broadcast new state
     if game.winner is None:
         _reset_timer(room)
+        await update_room_message(room.room_id)
     else:
-        # Game over: cancel timer
+        # Game over: cancel timer and update Telegram inline card
         if room.timer_task and not room.timer_task.done():
             room.timer_task.cancel()
+        await update_room_message(room.room_id)
 
     await _send_state_to_all(room)
 
