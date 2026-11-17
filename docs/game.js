@@ -343,161 +343,153 @@ const state = {
   timerSeconds: 60,
   timerInterval: null,
   gameStarted: false,
-  playersMap: {} // { [id]: { name, lastSeen } }
+  playersMap: {}
 };
 
-const TOPIC = `checkers_${ROOM_ID.toLowerCase().replace(/[^a-z0-9_-]/g, '')}`;
-const WS_URL = `wss://ntfy.sh/${TOPIC}/ws`;
-const POST_URL = `https://ntfy.sh/${TOPIC}`;
+// =================================================================
+// Bulletproof Realtime WebSocket Sync
+// =================================================================
+
+const BACKEND_HOST = '7e6ad457c0f960.app.lhr.life';
+const WS_URL = `wss://${BACKEND_HOST}/ws/${encodeURIComponent(ROOM_ID)}/${encodeURIComponent(MY_ID)}?name=${encodeURIComponent(MY_NAME)}`;
 
 let ws = null;
-
-function broadcast(payload) {
-  fetch(POST_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain' },
-    body: JSON.stringify(payload)
-  }).catch(() => {});
-}
-
-function broadcastPresence() {
-  broadcast({
-    event: 'presence',
-    senderId: MY_ID,
-    senderName: MY_NAME,
-    time: Date.now()
-  });
-}
+let reconnectTimer = null;
 
 function connectRealtime() {
-  // Announce presence immediately via POST
-  broadcastPresence();
+  if (state.isBotMode) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
   try {
     ws = new WebSocket(WS_URL);
   } catch (e) {
-    setTimeout(connectRealtime, 2000);
+    scheduleReconnect();
     return;
   }
 
   ws.onopen = () => {
-    // Send immediate presence as soon as WS connection is established
-    broadcastPresence();
+    console.log('[WS] Connected to room', ROOM_ID);
   };
 
   ws.onmessage = (evt) => {
     try {
-      const msgObj = JSON.parse(evt.data);
-      if (msgObj.event !== 'message' || !msgObj.message) return;
-      const data = JSON.parse(msgObj.message);
-      handleMessage(data);
-    } catch (e) {}
+      const data = JSON.parse(evt.data);
+      handleServerMessage(data);
+    } catch (e) {
+      console.error('[WS] Parse error', e);
+    }
   };
 
   ws.onclose = () => {
-    setTimeout(connectRealtime, 2000);
+    console.log('[WS] Disconnected, scheduling reconnect...');
+    scheduleReconnect();
   };
 
-  ws.onerror = () => {
-    try { ws.close(); } catch (e) {}
+  ws.onerror = (e) => {
+    try { ws.close(); } catch (_) {}
   };
 }
 
-// Heartbeat every 2 seconds
-setInterval(() => {
-  broadcastPresence();
-  reapOffline();
-}, 2000);
+function scheduleReconnect() {
+  if (state.isBotMode) return;
+  clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectRealtime, 2000);
+}
 
-function handleMessage(data) {
-  if (!data || !data.senderId) return;
+function sendWsMove(from_r, from_c, to_r, to_c) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'move',
+      from_r,
+      from_c,
+      to_r,
+      to_c
+    }));
+  }
+}
 
-  if (data.event === 'presence') {
-    const isNew = !state.playersMap[data.senderId];
-    state.playersMap[data.senderId] = {
-      name: data.senderName,
-      lastSeen: Date.now()
-    };
-    if (isNew && data.senderId !== MY_ID) {
-      // Immediately reply with own presence so newcomer gets our info instantly
-      broadcastPresence();
-    }
-    renderLobby();
-  } else if (data.event === 'move') {
-    if (data.senderId !== MY_ID) {
-      state.selectedCell = null;
-      game.board = data.board;
-      game.currentTurn = data.turn;
-      game.winner = data.winner;
-      haptic('medium');
+function handleServerMessage(data) {
+  if (!data) return;
 
-      if (!state.gameStarted) {
-        state.gameStarted = true;
-        launchGame();
+  if (data.type === 'game_state') {
+    // 1. Sync game logic state
+    if (data.board) game.board = data.board;
+    if (data.current_turn !== undefined) game.currentTurn = data.current_turn;
+    if (data.winner !== undefined) game.winner = data.winner;
+    if (data.your_color !== undefined) state.myColor = data.your_color;
+
+    // 2. Sync players in lobby
+    if (Array.isArray(data.players)) {
+      const pWhite = data.players.find(p => p.color === 1);
+      const pBlack = data.players.find(p => p.color === -1);
+
+      if (pWhite) {
+        $nameP1.textContent = pWhite.name + (pWhite.id === MY_ID ? ' (Вы)' : '');
+        $statusP1.textContent = 'Подключён';
+        $statusP1.className = 'status-pill online';
       } else {
-        updateGameView();
-        resetTimer();
+        $nameP1.textContent = 'Ожидание игрока...';
+        $statusP1.textContent = 'Не в сети';
+        $statusP1.className = 'status-pill offline';
       }
 
-      if (game.winner !== null) {
-        handleGameOver(game.winner);
+      if (pBlack) {
+        $nameP2.textContent = pBlack.name + (pBlack.id === MY_ID ? ' (Вы)' : '');
+        $statusP2.textContent = 'Подключён';
+        $statusP2.className = 'status-pill online';
+      } else {
+        $nameP2.textContent = 'Ожидание игрока...';
+        $statusP2.textContent = 'Не в сети';
+        $statusP2.className = 'status-pill offline';
+      }
+
+      const opp = data.players.find(p => p.id !== MY_ID);
+      state.opponentName = opp ? opp.name : 'Соперник';
+
+      // Both players connected -> Launch game automatically!
+      if (data.is_full && !state.gameStarted) {
+        state.gameStarted = true;
+        haptic('success');
+        setTimeout(launchGame, 600);
       }
     }
-  }
-}
 
-function reapOffline() {
-  if (state.gameStarted) return; // Never unseat players during active gameplay
-  const now = Date.now();
-  let changed = false;
-  for (const id in state.playersMap) {
-    if (id !== MY_ID && (now - state.playersMap[id].lastSeen > 7000)) {
-      delete state.playersMap[id];
-      changed = true;
+    // 3. Update view if playing
+    if (state.gameStarted) {
+      updateGameView();
+      if (data.winner !== null && data.winner !== undefined) {
+        handleGameOver(data.winner);
+      }
     }
-  }
-  if (changed) renderLobby();
-}
-
-function renderLobby() {
-  // Always include self in players map
-  state.playersMap[MY_ID] = {
-    name: MY_NAME,
-    lastSeen: Date.now()
-  };
-
-  const ids = Object.keys(state.playersMap).sort();
-  const p1Id = ids[0];
-  const p2Id = ids[1] || null;
-
-  // Player 1 (White)
-  const p1 = state.playersMap[p1Id];
-  $nameP1.textContent = p1.name;
-  $statusP1.textContent = 'Подключён';
-  $statusP1.className = 'status-pill online';
-
-  // Player 2 (Black)
-  if (p2Id) {
-    const p2 = state.playersMap[p2Id];
-    $nameP2.textContent = p2.name;
-    $statusP2.textContent = 'Подключён';
-    $statusP2.className = 'status-pill online';
-
-    state.myColor = (MY_ID === p1Id) ? 1 : -1;
-    state.opponentName = (MY_ID === p1Id) ? p2.name : p1.name;
-
-    // Both players connected -> Auto launch game smoothly after short delay so players see green badges
+  } else if (data.type === 'timer_tick') {
+    if ($timer && data.timer_seconds !== undefined) {
+      $timer.textContent = data.timer_seconds;
+      if (data.timer_seconds <= 10) {
+        $timer.classList.add('urgent');
+      } else {
+        $timer.classList.remove('urgent');
+      }
+    }
+  } else if (data.type === 'timeout') {
+    const winner = data.loser === 1 ? -1 : 1;
+    game.winner = winner;
+    handleGameOver(winner, true);
+  } else if (data.type === 'opponent_disconnected') {
     if (!state.gameStarted) {
-      state.gameStarted = true;
-      haptic('success');
-      setTimeout(launchGame, 600);
+      $nameP2.textContent = 'Ожидание игрока...';
+      $statusP2.textContent = 'Не в сети';
+      $statusP2.className = 'status-pill offline';
     }
-  } else {
-    $nameP2.textContent = 'Ожидание игрока...';
-    $statusP2.textContent = 'Не в сети';
-    $statusP2.className = 'status-pill offline';
-    state.myColor = 1;
   }
+}
+
+function renderLobbyInitial() {
+  $nameP1.textContent = 'Подключение...';
+  $statusP1.textContent = 'В сети';
+  $statusP1.className = 'status-pill online';
+  $nameP2.textContent = 'Ожидание игрока...';
+  $statusP2.textContent = 'Не в сети';
+  $statusP2.className = 'status-pill offline';
 }
 
 // =================================================================
@@ -616,14 +608,7 @@ function handleCellClick(r, c) {
         resetTimer();
 
         if (!state.isBotMode) {
-          broadcast({
-            event: 'move',
-            senderId: MY_ID,
-            fr, fc, r, c,
-            board: game.board,
-            turn: game.currentTurn,
-            winner: game.winner
-          });
+          sendWsMove(fr, fc, r, c);
         }
 
         if (game.winner !== null) {
@@ -725,4 +710,4 @@ if ($btnRestart) {
 
 // Start connection & populate UI
 connectRealtime();
-renderLobby();
+renderLobbyInitial();

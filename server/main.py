@@ -125,12 +125,23 @@ async def _build_game_state(room: Room, your_color: int) -> Dict[str, Any]:
     valid_moves = game.get_valid_moves(game.current_turn) if game.winner is None else []
     return {
         "type": "game_state",
+        "room_id": room.room_id,
         "board": game.board,
         "current_turn": game.current_turn,
         "valid_moves": _serialize_moves(valid_moves),
         "winner": game.winner,
         "your_color": your_color,
         "timer_seconds": room.timer_seconds,
+        "players": [
+            {
+                "id": p.player_id,
+                "name": p.player_name,
+                "color": p.color,
+                "online": True,
+            }
+            for p in room.players.values()
+        ],
+        "is_full": room.is_full,
     }
 
 
@@ -224,26 +235,27 @@ async def get_room(room_id: str):
 
 
 @app.websocket("/ws/{room_id}/{player_id}")
-async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str):
+async def websocket_endpoint(
+    websocket: WebSocket,
+    room_id: str,
+    player_id: str,
+    name: Optional[str] = None,
+):
     await websocket.accept()
 
-    room = room_manager.get_room(room_id)
-    if room is None:
-        await websocket.send_text(json.dumps({"type": "error", "message": "Room not found"}))
-        await websocket.close()
-        return
+    display_name = name or f"Игрок {player_id[-4:]}"
+    room = room_manager.get_or_create_room(room_id)
 
-    color = room_manager.join_room(room_id, player_id, websocket)
+    color = room_manager.join_room(room_id, player_id, display_name, websocket)
     if color is None:
-        await websocket.send_text(json.dumps({"type": "error", "message": "Room is full"}))
+        await websocket.send_text(json.dumps({"type": "error", "message": "Комната уже заполнена"}))
         await websocket.close()
         return
 
-    logger.info("Player %s joined room %s as color %d", player_id, room_id, color)
+    logger.info("Player %s (%s) joined room %s as color %d", player_id, display_name, room_id, color)
 
-    # Send current state to the newly connected player
-    state = await _build_game_state(room, color)
-    await websocket.send_text(json.dumps(state))
+    # Broadcast updated room state to all players in this room
+    await _send_state_to_all(room)
 
     # If both players are now connected, start the timer
     if room.is_full and (room.timer_task is None or room.timer_task.done()):
@@ -268,9 +280,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
     except WebSocketDisconnect:
         logger.info("Player %s disconnected from room %s", player_id, room_id)
         room_manager.remove_player(room_id, player_id)
-        # Notify remaining players
         if room.players:
-            await _broadcast(room, {"type": "opponent_disconnected", "player_id": player_id})
+            await _send_state_to_all(room)
 
 
 async def _handle_move(
