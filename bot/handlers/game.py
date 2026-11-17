@@ -49,7 +49,23 @@ HELP_TEXT = """
 async def cmd_start(message: Message):
     bot_info = await message.bot.get_me()
     text = START_TEXT.format(username=bot_info.username)
-    await message.answer(text, parse_mode="HTML")
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🎮 Открыть шашки",
+                    web_app=WebAppInfo(url=FRONTEND_URL),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👥 Позвать друга в чат",
+                    switch_inline_query="",
+                )
+            ],
+        ]
+    )
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 @router.message(Command("help"))

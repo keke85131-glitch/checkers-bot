@@ -5,6 +5,7 @@ from aiogram.types import (
     InputTextMessageContent,
     InlineKeyboardMarkup,
     InlineKeyboardButton,
+    InlineQueryResultsButton,
     WebAppInfo,
 )
 import aiohttp
@@ -53,13 +54,13 @@ async def inline_checkers(query: InlineQuery):
     # Не передаём pid в URL, чтобы второй игрок получил свой уникальный ID в Mini App
     game_url = f"{FRONTEND_URL}?room={room_id}"
 
-    # Кнопка, которая откроет Web App
+    # Внутри сообщения используем обычную url-кнопку, чтобы Telegram не выдавал BUTTON_TYPE_INVALID
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🎮 Играть в шашки",
-                    web_app=WebAppInfo(url=game_url),
+                    text="🎮 Войти в игру",
+                    url=game_url,
                 )
             ]
         ]
@@ -67,22 +68,29 @@ async def inline_checkers(query: InlineQuery):
 
     result = InlineQueryResultArticle(
         id=room_id,
-        title="Шашки — создать партию",
-        description="Пригласи друга сыграть в шашки прямо в Telegram",
+        title="♟️ Создать партию в шашки",
+        description="Нажми, чтобы отправить приглашение в этот чат",
         thumbnail_url="https://raw.githubusercontent.com/twitter/twemoji/master/assets/72x72/265f.png",
         input_message_content=InputTextMessageContent(
             message_text=(
-                f"♟️ <b>Игра в шашки</b>\n"
+                f"♟️ <b>Партия в шашки!</b>\n\n"
                 f"Комната: <code>{room_id}</code>\n"
-                f"Нажми кнопку ниже, чтобы присоединиться!"
+                f"Нажми кнопку ниже, чтобы присоединиться к игре!"
             ),
             parse_mode="HTML",
         ),
         reply_markup=keyboard,
     )
 
+    # Кнопка над результатами поиска
+    button = InlineQueryResultsButton(
+        text="🎮 Быстрая игра в шашки",
+        web_app=WebAppInfo(url=game_url),
+    )
+
     await query.answer(
         results=[result],
         cache_time=0,
         is_personal=True,
+        button=button,
     )
