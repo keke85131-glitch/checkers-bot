@@ -4,7 +4,7 @@
    ================================================================= */
 
 // ---------- Config ----------
-const BACKEND_WS = '__BACKEND_WS__'; // replaced at deploy time, e.g. wss://your-app.onrender.com
+const BACKEND_WS = 'wss://81ba26d6b301ba.app.lhr.life';
 
 // ---------- Telegram Mini App ----------
 const tg = window.Telegram?.WebApp;
