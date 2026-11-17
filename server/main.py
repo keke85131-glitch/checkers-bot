@@ -137,36 +137,38 @@ async def _build_game_state(room: Room, your_color: int) -> Dict[str, Any]:
                 "id": p.player_id,
                 "name": p.player_name,
                 "color": p.color,
-                "online": True,
+                "online": p.online,
             }
             for p in room.players.values()
         ],
         "is_full": room.is_full,
+        "is_ready": room.is_ready_to_play,
     }
 
 
 async def _broadcast(room: Room, message: Dict[str, Any], exclude_player: Optional[str] = None) -> None:
-    """Send *message* to all connected players in the room."""
-    dead: List[str] = []
-    for pid, info in room.players.items():
-        if pid == exclude_player:
+    """Send *message* to all online connected players in the room."""
+    for pid, info in list(room.players.items()):
+        if pid == exclude_player or info.websocket is None or not info.online:
             continue
         try:
             await info.websocket.send_text(json.dumps(message))
         except Exception:
-            dead.append(pid)
-    for pid in dead:
-        room_manager.remove_player(room.room_id, pid)
+            info.online = False
+            info.websocket = None
 
 
 async def _send_state_to_all(room: Room) -> None:
-    """Send personalised game_state to each connected player."""
+    """Send personalised game_state to each online connected player."""
     for pid, info in list(room.players.items()):
+        if info.websocket is None or not info.online:
+            continue
         state = await _build_game_state(room, info.color)
         try:
             await info.websocket.send_text(json.dumps(state))
         except Exception:
-            room_manager.remove_player(room.room_id, pid)
+            info.online = False
+            info.websocket = None
 
 
 # ---------------------------------------------------------------------------
@@ -279,9 +281,11 @@ async def websocket_endpoint(
 
     except WebSocketDisconnect:
         logger.info("Player %s disconnected from room %s", player_id, room_id)
-        room_manager.remove_player(room_id, player_id)
-        if room.players:
-            await _send_state_to_all(room)
+        if player_id in room.players:
+            if room.players[player_id].websocket is websocket:
+                room.players[player_id].online = False
+                room.players[player_id].websocket = None
+                await _send_state_to_all(room)
 
 
 async def _handle_move(

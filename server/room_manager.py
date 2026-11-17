@@ -17,7 +17,8 @@ class PlayerInfo:
     player_id: str
     player_name: str
     color: int  # 1 (White) or -1 (Black)
-    websocket: object  # fastapi WebSocket
+    websocket: Optional[object] = None  # fastapi WebSocket
+    online: bool = True
 
 
 @dataclass
@@ -32,6 +33,10 @@ class Room:
     @property
     def is_full(self) -> bool:
         return len(self.players) >= 2
+
+    @property
+    def is_ready_to_play(self) -> bool:
+        return len(self.players) >= 2 and all(p.online for p in self.players.values())
 
     @property
     def players_count(self) -> int:
@@ -60,11 +65,13 @@ class RoomManager:
     def join_room(self, room_id: str, player_id: str, player_name: str, websocket: object) -> Optional[int]:
         room = self.get_or_create_room(room_id)
 
-        # Reconnection
+        # Reconnection: player is already in this room
         if player_id in room.players:
-            room.players[player_id].websocket = websocket
-            room.players[player_id].player_name = player_name
-            return room.players[player_id].color
+            p = room.players[player_id]
+            p.websocket = websocket
+            p.player_name = player_name
+            p.online = True
+            return p.color
 
         if room.is_full:
             return None
@@ -76,7 +83,8 @@ class RoomManager:
             player_id=player_id,
             player_name=player_name,
             color=color,
-            websocket=websocket
+            websocket=websocket,
+            online=True
         )
         return color
 

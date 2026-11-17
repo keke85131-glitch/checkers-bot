@@ -425,8 +425,8 @@ function handleServerMessage(data) {
 
       if (pWhite) {
         $nameP1.textContent = pWhite.name + (pWhite.id === MY_ID ? ' (Вы)' : '');
-        $statusP1.textContent = 'Подключён';
-        $statusP1.className = 'status-pill online';
+        $statusP1.textContent = pWhite.online ? 'Подключён' : 'Не в сети';
+        $statusP1.className = `status-pill ${pWhite.online ? 'online' : 'offline'}`;
       } else {
         $nameP1.textContent = 'Ожидание игрока...';
         $statusP1.textContent = 'Не в сети';
@@ -435,8 +435,8 @@ function handleServerMessage(data) {
 
       if (pBlack) {
         $nameP2.textContent = pBlack.name + (pBlack.id === MY_ID ? ' (Вы)' : '');
-        $statusP2.textContent = 'Подключён';
-        $statusP2.className = 'status-pill online';
+        $statusP2.textContent = pBlack.online ? 'Подключён' : 'Не в сети';
+        $statusP2.className = `status-pill ${pBlack.online ? 'online' : 'offline'}`;
       } else {
         $nameP2.textContent = 'Ожидание игрока...';
         $statusP2.textContent = 'Не в сети';
@@ -446,8 +446,8 @@ function handleServerMessage(data) {
       const opp = data.players.find(p => p.id !== MY_ID);
       state.opponentName = opp ? opp.name : 'Соперник';
 
-      // Both players connected -> Launch game automatically!
-      if (data.is_full && !state.gameStarted) {
+      // Both players connected and both online -> Launch game automatically!
+      if (data.is_ready && !state.gameStarted) {
         state.gameStarted = true;
         haptic('success');
         setTimeout(launchGame, 600);
