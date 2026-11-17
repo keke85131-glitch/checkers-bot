@@ -31,68 +31,70 @@ const MY_NAME = tgUser
   ? (tgUser.first_name + (tgUser.username ? ` (@${tgUser.username})` : ''))
   : ('Игрок ' + MY_ID.slice(-4));
 
-// ---------- Bulletproof Room ID Extraction ----------
-function resolveRoomId() {
+// ---------- Bulletproof Dynamic Room & Host Extraction ----------
+let BACKEND_HOST = '2baca35c7adc9c.app.lhr.life';
+
+function resolveRoomAndHost() {
   const sanitize = (val) => {
     if (!val || typeof val !== 'string') return null;
     const clean = val.trim().replace(/^[#/?]+/, '');
-    const m = clean.match(/^[A-Za-z0-9_-]{3,32}$/);
-    return m ? clean.toUpperCase() : null;
+    const m = clean.match(/^[A-Za-z0-9_-]{3,64}$/);
+    return m ? clean : null;
   };
 
-  const parseQuery = (qs) => {
-    if (!qs) return null;
-    try {
-      const clean = qs.replace(/^[#?]/, '');
-      const p = new URLSearchParams(clean);
-      // Direct params
-      for (const k of ['startapp', 'tgWebAppStartParam', 'start_param', 'room', 'r']) {
-        const v = p.get(k);
-        const s = sanitize(v);
-        if (s) return s;
+  const parseParam = (raw) => {
+    if (!raw) return null;
+    const clean = sanitize(raw);
+    if (!clean) return null;
+
+    if (clean.includes('_')) {
+      const parts = clean.split('_');
+      const rId = parts[0].toUpperCase();
+      if (parts[1]) {
+        BACKEND_HOST = `${parts[1].toLowerCase()}.app.lhr.life`;
       }
-      // Check nested in tgWebAppData
-      const appData = p.get('tgWebAppData');
-      if (appData) {
-        const ap = new URLSearchParams(appData);
-        for (const k of ['start_param', 'tgWebAppStartParam', 'startapp', 'room']) {
-          const v = ap.get(k);
-          const s = sanitize(v);
-          if (s) return s;
-        }
-      }
-    } catch (e) {}
-    return null;
+      return rId;
+    }
+    return clean.toUpperCase();
   };
 
   // 1. Telegram WebApp SDK start_param
   if (tg?.initDataUnsafe?.start_param) {
-    const s = sanitize(tg.initDataUnsafe.start_param);
+    const s = parseParam(tg.initDataUnsafe.start_param);
     if (s) return s;
   }
 
   // 2. Direct search query (?startapp=... or ?tgWebAppStartParam=... or ?room=...)
-  const fromSearch = parseQuery(window.location.search);
-  if (fromSearch) return fromSearch;
+  try {
+    const p = new URLSearchParams(window.location.search);
+    for (const k of ['startapp', 'tgWebAppStartParam', 'start_param', 'room', 'r']) {
+      const s = parseParam(p.get(k));
+      if (s) return s;
+    }
+  } catch (e) {}
 
   // 3. URL hash (#tgWebAppStartParam=... or #startapp=... or #tgWebAppData=...)
   if (window.location.hash) {
-    const fromHash = parseQuery(window.location.hash);
-    if (fromHash) return fromHash;
+    try {
+      const hp = new URLSearchParams(window.location.hash.replace(/^[#?]/, ''));
+      for (const k of ['startapp', 'tgWebAppStartParam', 'start_param', 'room', 'r']) {
+        const s = parseParam(hp.get(k));
+        if (s) return s;
+      }
+    } catch (e) {}
 
-    // Direct regex match from hash (e.g. #tgWebAppStartParam=XYZ)
-    const hashMatch = window.location.hash.match(/(?:tgWebAppStartParam|startapp|start_param|room)[=:]\s*([A-Za-z0-9_-]{3,32})/i);
+    const hashMatch = window.location.hash.match(/(?:tgWebAppStartParam|startapp|start_param|room)[=:]\s*([A-Za-z0-9_-]{3,64})/i);
     if (hashMatch && hashMatch[1]) {
-      const s = sanitize(hashMatch[1]);
+      const s = parseParam(hashMatch[1]);
       if (s) return s;
     }
   }
 
   // 4. Regex fallback across full URL href
   try {
-    const hrefMatch = window.location.href.match(/(?:tgWebAppStartParam|startapp|start_param|room)[=:]\s*([A-Za-z0-9_-]{3,32})/i);
+    const hrefMatch = window.location.href.match(/(?:tgWebAppStartParam|startapp|start_param|room)[=:]\s*([A-Za-z0-9_-]{3,64})/i);
     if (hrefMatch && hrefMatch[1]) {
-      const s = sanitize(hrefMatch[1]);
+      const s = parseParam(hrefMatch[1]);
       if (s) return s;
     }
   } catch (e) {}
@@ -101,7 +103,7 @@ function resolveRoomId() {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
 
-const ROOM_ID = resolveRoomId();
+const ROOM_ID = resolveRoomAndHost();
 
 // ---------- DOM Elements ----------
 const $screenLobby    = document.getElementById('screen-lobby');
@@ -350,8 +352,7 @@ const state = {
 // Bulletproof Realtime WebSocket Sync
 // =================================================================
 
-const BACKEND_HOST = '7e6ad457c0f960.app.lhr.life';
-const WS_URL = `wss://${BACKEND_HOST}/ws/${encodeURIComponent(ROOM_ID)}/${encodeURIComponent(MY_ID)}?name=${encodeURIComponent(MY_NAME)}`;
+const getWsUrl = () => `wss://${BACKEND_HOST}/ws/${encodeURIComponent(ROOM_ID)}/${encodeURIComponent(MY_ID)}?name=${encodeURIComponent(MY_NAME)}`;
 
 let ws = null;
 let reconnectTimer = null;
@@ -360,8 +361,11 @@ function connectRealtime() {
   if (state.isBotMode) return;
   if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return;
 
+  const url = getWsUrl();
+  console.log('[WS] Connecting to:', url);
+
   try {
-    ws = new WebSocket(WS_URL);
+    ws = new WebSocket(url);
   } catch (e) {
     scheduleReconnect();
     return;

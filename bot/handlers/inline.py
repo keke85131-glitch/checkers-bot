@@ -1,5 +1,6 @@
 import html
 import logging
+import os
 from typing import Optional
 import uuid
 
@@ -32,6 +33,20 @@ EMOJI_GRAY_OFFLINE  = '<tg-emoji emoji-id="5469817348842107485">🔘</tg-emoji>'
 EMOJI_TROPHY        = '<tg-emoji emoji-id="5467724445638504471">🏆</tg-emoji>'
 
 
+def get_app_url(room_id: str) -> str:
+    host_file = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "tunnel_host.txt")
+    host_prefix = "2baca35c7adc9c"
+    if os.path.exists(host_file):
+        try:
+            with open(host_file, "r", encoding="utf-8") as f:
+                c = f.read().strip()
+                if c:
+                    host_prefix = c.split(".")[0]
+        except Exception:
+            pass
+    return f"https://t.me/gameddd_bot/app?startapp={room_id}_{host_prefix}"
+
+
 async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
     """
     Динамически обновляет карточку партии в чате Telegram через editMessageText по inline_message_id.
@@ -49,7 +64,7 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         return False
 
     clean_room_id = room.room_id.upper()
-    app_url = f"https://t.me/gameddd_bot/app?startapp={clean_room_id}"
+    app_url = get_app_url(clean_room_id)
 
     p1 = room.white_player
     p2 = room.black_player
@@ -162,7 +177,7 @@ async def inline_checkers(query: InlineQuery):
     if not room.creator_name:
         room.creator_name = user_name
 
-    app_url = f"https://t.me/gameddd_bot/app?startapp={room_id}"
+    app_url = get_app_url(room_id)
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
