@@ -713,5 +713,12 @@ if ($btnRestart) {
 }
 
 // Start connection & populate UI
-connectRealtime();
-renderLobbyInitial();
+if (ROOM_ID === 'BOT') {
+  state.isBotMode = true;
+  state.myColor = 1;
+  state.opponentName = 'Бот';
+  setTimeout(launchGame, 100);
+} else {
+  connectRealtime();
+  renderLobbyInitial();
+}

@@ -197,10 +197,11 @@ async def inline_checkers(query: InlineQuery):
         f"<b>Статус:</b> Ожидание второго игрока"
     )
 
-    result = InlineQueryResultArticle(
+    # 1. Онлайн-партия для двоих
+    res_pvp = InlineQueryResultArticle(
         id=room_id,
-        title=f"Создать партию #{room_id}",
-        description=f"Пригласить в шашки ({user_name})",
+        title=f"🎮 Создать партию #{room_id}",
+        description="Онлайн-игра на двоих 8×8 в реальном времени",
         input_message_content=InputTextMessageContent(
             message_text=message_text,
             parse_mode="HTML",
@@ -208,17 +209,56 @@ async def inline_checkers(query: InlineQuery):
         reply_markup=keyboard,
     )
 
-    frontend_base = FRONTEND_URL.rstrip("/")
-    button = InlineQueryResultsButton(
-        text="Открыть шашки",
-        web_app=WebAppInfo(url=f"{frontend_base}/?room={room_id}"),
+    # 2. Одиночная игра с ботом
+    res_bot = InlineQueryResultArticle(
+        id=f"bot_{room_id}",
+        title="🤖 Одиночная игра с ботом",
+        description="Тренировочная партия против ИИ",
+        input_message_content=InputTextMessageContent(
+            message_text=(
+                f"<b>Шашки 8×8 • Тренировка</b>\n\n"
+                f"┌ {EMOJI_WHITE_CHECKER} <b>Игрок:</b> {safe_user_name}\n"
+                f"└ {EMOJI_BLACK_CHECKER} <b>Соперник:</b> <i>Бот (ИИ)</i>\n\n"
+                f"Нажмите кнопку ниже, чтобы начать одиночную игру."
+            ),
+            parse_mode="HTML",
+        ),
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🎮 Играть с ботом",
+                        url=f"https://t.me/gameddd_bot/app?startapp=bot",
+                    )
+                ]
+            ]
+        ),
     )
 
+    # 3. Правила игры
+    res_rules = InlineQueryResultArticle(
+        id=f"rules_{room_id}",
+        title="📖 Правила русских шашек",
+        description="Классические правила: дамки, взятие назад",
+        input_message_content=InputTextMessageContent(
+            message_text=(
+                f"<b>📖 Правила русских шашек 8×8</b>\n\n"
+                f"• Простая шашка ходит по диагонали только вперёд на одну клетку.\n"
+                f"• Бить можно <b>и вперёд, и назад</b>.\n"
+                f"• Если есть возможность взятия — бить <b>обязательно</b>.\n"
+                f"• Дамка может ходить и бить на любое количество по диагонали.\n"
+                f"• Таймер: 60 секунд на каждый ход."
+            ),
+            parse_mode="HTML",
+        ),
+    )
+
+    results = [res_pvp, res_bot, res_rules]
+
     await query.answer(
-        results=[result],
+        results=results,
         cache_time=0,
         is_personal=True,
-        button=button,
     )
 
 
