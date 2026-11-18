@@ -11,12 +11,9 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     InlineQuery,
     InlineQueryResultArticle,
-    InlineQueryResultsButton,
     InputTextMessageContent,
-    WebAppInfo,
 )
 
-from bot.config import FRONTEND_URL
 from bot.instance import get_bot
 from server.room_manager import RoomManager
 
@@ -50,7 +47,13 @@ def get_app_url(room_id: str) -> str:
 async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
     """
     Динамически обновляет карточку партии в чате Telegram через editMessageText по inline_message_id.
-    Использует официальные кастомные эмодзи бота для живого статуса игроков и игры.
+    Поддерживает статусы:
+    - Ожидание второго игрока
+    - Ожидание готовности (1/2)
+    - Оба готовы! Запуск...
+    - Партия идёт • Ход Белых/Чёрных
+    - Ожидание возвращения игрока...
+    - Завершение партии (Победитель)
     """
     if bot is None:
         bot = get_bot()
@@ -74,7 +77,7 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
 
     game = room.game
 
-    # 4. Завершение партии: победа / поражение / таймаут
+    # 1. Завершение партии: победа / поражение / таймаут
     if game.winner is not None:
         if game.winner == 1:
             winner_name = f"{p1_name} (Белые)"
@@ -91,7 +94,7 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         )
         button_text = "🔄 Новая игра"
 
-    # 3. Если один из игроков свернул / вышел:
+    # 2. Если один из игроков свернул / вышел:
     elif room.is_full and (p1 is not None and p2 is not None) and (not p1.online or not p2.online):
         ind_p1 = EMOJI_GREEN_ONLINE if p1.online else EMOJI_GRAY_OFFLINE
         status_p1 = "В игре" if p1.online else "Отошёл"
@@ -107,8 +110,8 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         )
         button_text = "🎮 Вернуться в игру"
 
-    # 2. Оба игрока подключены и в игре:
-    elif room.is_full and (p1 is not None and p2 is not None) and (p1.online and p2.online):
+    # 3. Партия идёт:
+    elif room.game_started:
         turn_color = "Белых" if game.current_turn == 1 else "Чёрных"
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
@@ -118,23 +121,39 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         )
         button_text = "🎮 Открыть партию"
 
-    # 1. Если зашёл один игрок (Белые в игре, Чёрных ещё нет):
-    elif p1 is not None and p1.online:
+    # 4. Оба готовы! Запуск...
+    elif room.is_full and p1 is not None and p2 is not None and (
+        (getattr(room, "countdown_task", None) and not room.countdown_task.done())
+        or (p1.ready and p2.ready)
+    ):
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В игре</i>\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-            f"<b>Статус:</b> Создатель в игре • Ожидание соперника"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>Готов</i>\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {EMOJI_GREEN_ONLINE} <i>Готов</i>\n\n"
+            f"<b>Статус:</b> Оба готовы! Запуск..."
+        )
+        button_text = "🎮 Открыть партию"
+
+    # 5. Оба в комнате, ожидание готовности:
+    elif room.is_full and p1 is not None and p2 is not None:
+        ready_count = (1 if p1.ready else 0) + (1 if p2.ready else 0)
+        st_p1 = "Готов" if p1.ready else "В сети"
+        st_p2 = "Готов" if p2.ready else "В сети"
+        text = (
+            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>{st_p1}</i>\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {EMOJI_GREEN_ONLINE} <i>{st_p2}</i>\n\n"
+            f"<b>Статус:</b> Ожидание готовности ({ready_count}/2)"
         )
         button_text = "🎮 Войти в игру"
 
-    # 0. Никто ещё не зашёл в игру (сообщение только что отправлено):
+    # 6. Ожидание второго игрока:
     else:
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GRAY_OFFLINE} <i>Не в игре</i>\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
             f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-            f"<b>Статус:</b> Партия создана • Ожидание игроков"
+            f"<b>Статус:</b> Ожидание второго игрока"
         )
         button_text = "🎮 Войти в игру"
 
@@ -170,7 +189,9 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
 async def inline_checkers(query: InlineQuery):
     """
     Inline-режим: пользователь пишет @gameddd_bot в любом чате (ЛС или группа).
-    Генерирует карточку партии с кастомными эмодзи и кнопкой [ 🎮 Войти в игру ].
+    Возвращает РОВНО ОДНУ понятную плашку:
+    - Title: 🎮 Создать партию в шашки
+    - Description: Игра на двоих 8×8 в реальном времени
     """
     q = query.query.strip().upper()
     if q and len(q) <= 12 and q.isalnum():
@@ -202,16 +223,15 @@ async def inline_checkers(query: InlineQuery):
 
     message_text = (
         f"<b>Шашки 8×8 • Комната #{room_id}</b>\n\n"
-        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GRAY_OFFLINE} <i>Не в игре</i>\n"
+        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
         f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-        f"<b>Статус:</b> Партия создана • Ожидание игроков"
+        f"<b>Статус:</b> Ожидание второго игрока"
     )
 
-    # 1. Онлайн-партия для двоих
-    res_pvp = InlineQueryResultArticle(
+    result = InlineQueryResultArticle(
         id=room_id,
-        title=f"🎮 Создать партию #{room_id}",
-        description="Онлайн-игра на двоих 8×8 в реальном времени",
+        title="🎮 Создать партию в шашки",
+        description="Игра на двоих 8×8 в реальном времени",
         input_message_content=InputTextMessageContent(
             message_text=message_text,
             parse_mode="HTML",
@@ -219,54 +239,8 @@ async def inline_checkers(query: InlineQuery):
         reply_markup=keyboard,
     )
 
-    # 2. Одиночная игра с ботом
-    res_bot = InlineQueryResultArticle(
-        id=f"bot_{room_id}",
-        title="🤖 Одиночная игра с ботом",
-        description="Тренировочная партия против ИИ",
-        input_message_content=InputTextMessageContent(
-            message_text=(
-                f"<b>Шашки 8×8 • Тренировка</b>\n\n"
-                f"┌ {EMOJI_WHITE_CHECKER} <b>Игрок:</b> {safe_user_name}\n"
-                f"└ {EMOJI_BLACK_CHECKER} <b>Соперник:</b> <i>Бот (ИИ)</i>\n\n"
-                f"Нажмите кнопку ниже, чтобы начать одиночную игру."
-            ),
-            parse_mode="HTML",
-        ),
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🎮 Играть с ботом",
-                        url=f"https://t.me/gameddd_bot/app?startapp=bot",
-                    )
-                ]
-            ]
-        ),
-    )
-
-    # 3. Правила игры
-    res_rules = InlineQueryResultArticle(
-        id=f"rules_{room_id}",
-        title="📖 Правила русских шашек",
-        description="Классические правила: дамки, взятие назад",
-        input_message_content=InputTextMessageContent(
-            message_text=(
-                f"<b>📖 Правила русских шашек 8×8</b>\n\n"
-                f"• Простая шашка ходит по диагонали только вперёд на одну клетку.\n"
-                f"• Бить можно <b>и вперёд, и назад</b>.\n"
-                f"• Если есть возможность взятия — бить <b>обязательно</b>.\n"
-                f"• Дамка может ходить и бить на любое количество по диагонали.\n"
-                f"• Таймер: 60 секунд на каждый ход."
-            ),
-            parse_mode="HTML",
-        ),
-    )
-
-    results = [res_pvp, res_bot, res_rules]
-
     await query.answer(
-        results=results,
+        results=[result],
         cache_time=0,
         is_personal=True,
     )

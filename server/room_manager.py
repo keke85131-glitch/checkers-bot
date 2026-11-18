@@ -20,6 +20,7 @@ class PlayerInfo:
     color: int  # 1 (White) or -1 (Black)
     websocket: Optional[object] = None  # fastapi WebSocket
     online: bool = True
+    ready: bool = False
 
 
 @dataclass
@@ -29,9 +30,13 @@ class Room:
     players: Dict[str, PlayerInfo] = field(default_factory=dict)
     current_turn: int = 1
     timer_task: Optional[asyncio.Task] = field(default=None, compare=False)
+    countdown_task: Optional[asyncio.Task] = field(default=None, compare=False)
     timer_seconds: int = 60
     inline_message_id: Optional[str] = None
     creator_name: Optional[str] = None
+    game_started: bool = False
+    counting_down: bool = False
+    game_started: bool = False
 
     @property
     def is_full(self) -> bool:
@@ -39,7 +44,11 @@ class Room:
 
     @property
     def is_ready_to_play(self) -> bool:
-        return len(self.players) >= 2 and all(p.online for p in self.players.values())
+        return len(self.players) >= 2 and all(p.online and p.ready for p in self.players.values())
+
+    @property
+    def ready_count(self) -> int:
+        return sum(1 for p in self.players.values() if p.online and p.ready)
 
     @property
     def players_count(self) -> int:
@@ -56,6 +65,16 @@ class Room:
     def color_for(self, player_id: str) -> Optional[int]:
         info = self.players.get(player_id)
         return info.color if info else None
+
+    def set_player_ready(self, player_id: str, ready: bool) -> bool:
+        if player_id in self.players:
+            self.players[player_id].ready = ready
+            return True
+        return False
+
+    def reset_readiness(self) -> None:
+        for p in self.players.values():
+            p.ready = False
 
 
 class RoomManager:

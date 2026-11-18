@@ -71,6 +71,14 @@ function resolveRoomAndHost() {
       const s = parseParam(p.get(k));
       if (s) return s;
     }
+    const appData = p.get('tgWebAppData');
+    if (appData) {
+      const ap = new URLSearchParams(appData);
+      for (const k of ['start_param', 'tgWebAppStartParam', 'startapp', 'room']) {
+        const s = parseParam(ap.get(k));
+        if (s) return s;
+      }
+    }
   } catch (e) {}
 
   // 3. URL hash (#tgWebAppStartParam=... or #startapp=... or #tgWebAppData=...)
@@ -80,6 +88,14 @@ function resolveRoomAndHost() {
       for (const k of ['startapp', 'tgWebAppStartParam', 'start_param', 'room', 'r']) {
         const s = parseParam(hp.get(k));
         if (s) return s;
+      }
+      const appData = hp.get('tgWebAppData');
+      if (appData) {
+        const ap = new URLSearchParams(appData);
+        for (const k of ['start_param', 'tgWebAppStartParam', 'startapp', 'room']) {
+          const s = parseParam(ap.get(k));
+          if (s) return s;
+        }
       }
     } catch (e) {}
 
@@ -106,28 +122,37 @@ function resolveRoomAndHost() {
 const ROOM_ID = resolveRoomAndHost();
 
 // ---------- DOM Elements ----------
-const $screenLobby    = document.getElementById('screen-lobby');
-const $screenGame     = document.getElementById('screen-game');
-const $screenGameOver = document.getElementById('screen-gameover');
-const $roomTag        = document.getElementById('room-tag');
-const $nameP1         = document.getElementById('name-p1');
-const $nameP2         = document.getElementById('name-p2');
-const $statusP1       = document.getElementById('status-p1');
-const $statusP2       = document.getElementById('status-p2');
-const $btnShare       = document.getElementById('btn-share');
-const $btnPlayBot     = document.getElementById('btn-play-bot');
-const $btnRestart     = document.getElementById('btn-restart');
-const $board          = document.getElementById('board');
-const $timer          = document.getElementById('timer');
-const $myName         = document.getElementById('my-name');
-const $oppName        = document.getElementById('opp-name');
-const $myCount        = document.getElementById('my-count');
-const $oppCount       = document.getElementById('opp-count');
-const $myMarker       = document.getElementById('my-marker');
-const $oppMarker      = document.getElementById('opp-marker');
-const $turnInfo       = document.getElementById('turn-info');
-const $resultTitle    = document.getElementById('result-title');
-const $resultDesc     = document.getElementById('result-desc');
+const $screenLobby      = document.getElementById('screen-lobby');
+const $screenGame       = document.getElementById('screen-game');
+const $screenGameOver   = document.getElementById('screen-gameover');
+const $roomTag          = document.getElementById('room-tag');
+const $nameP1           = document.getElementById('name-p1');
+const $nameP2           = document.getElementById('name-p2');
+const $statusP1         = document.getElementById('status-p1');
+const $statusP2         = document.getElementById('status-p2');
+const $readyP1          = document.getElementById('ready-p1');
+const $readyP2          = document.getElementById('ready-p2');
+const $btnReady         = document.getElementById('btn-ready');
+const $btnShare         = document.getElementById('btn-share');
+const $btnPlayBot       = document.getElementById('btn-play-bot');
+const $btnRestart       = document.getElementById('btn-restart');
+const $countdownOverlay = document.getElementById('countdown-overlay');
+const $countdownNumber  = document.getElementById('countdown-number');
+const $countdownText    = document.getElementById('countdown-text');
+const $reactionsBar     = document.getElementById('reactions-bar');
+const $myReaction       = document.getElementById('my-reaction');
+const $oppReaction      = document.getElementById('opp-reaction');
+const $board            = document.getElementById('board');
+const $timer            = document.getElementById('timer');
+const $myName           = document.getElementById('my-name');
+const $oppName          = document.getElementById('opp-name');
+const $myCount          = document.getElementById('my-count');
+const $oppCount         = document.getElementById('opp-count');
+const $myMarker         = document.getElementById('my-marker');
+const $oppMarker        = document.getElementById('opp-marker');
+const $turnInfo         = document.getElementById('turn-info');
+const $resultTitle      = document.getElementById('result-title');
+const $resultDesc       = document.getElementById('result-desc');
 
 // Initialize DOM with immediate values
 if ($roomTag) $roomTag.textContent = `#${ROOM_ID}`;
@@ -136,10 +161,18 @@ if ($statusP1) {
   $statusP1.textContent = 'Подключён';
   $statusP1.className = 'status-pill online';
 }
+if ($readyP1) {
+  $readyP1.textContent = '⏳ Не готов';
+  $readyP1.className = 'ready-pill not-ready';
+}
 if ($nameP2) $nameP2.textContent = 'Ожидание игрока...';
 if ($statusP2) {
   $statusP2.textContent = 'Не в сети';
   $statusP2.className = 'status-pill offline';
+}
+if ($readyP2) {
+  $readyP2.textContent = '⏳ Не готов';
+  $readyP2.className = 'ready-pill not-ready';
 }
 
 // =================================================================
@@ -345,6 +378,7 @@ const state = {
   timerSeconds: 60,
   timerInterval: null,
   gameStarted: false,
+  myReady: false,
   playersMap: {}
 };
 
@@ -373,6 +407,10 @@ function connectRealtime() {
 
   ws.onopen = () => {
     console.log('[WS] Connected to room', ROOM_ID);
+    // If player had already marked ready, sync it immediately
+    if (state.myReady) {
+      sendReadyState(true);
+    }
   };
 
   ws.onmessage = (evt) => {
@@ -389,7 +427,7 @@ function connectRealtime() {
     scheduleReconnect();
   };
 
-  ws.onerror = (e) => {
+  ws.onerror = () => {
     try { ws.close(); } catch (_) {}
   };
 }
@@ -412,6 +450,41 @@ function sendWsMove(from_r, from_c, to_r, to_c) {
   }
 }
 
+function sendReadyState(ready) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'player_ready',
+      ready: !!ready
+    }));
+  }
+}
+
+function sendReaction(emoji) {
+  haptic('light');
+  spawnFloatingEmoji($myReaction, emoji);
+
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: 'reaction',
+      emoji: emoji
+    }));
+  }
+}
+
+function spawnFloatingEmoji(container, emoji) {
+  if (!container) return;
+  const el = document.createElement('div');
+  el.className = 'floating-emoji';
+  el.textContent = emoji;
+  const jitter = (Math.random() - 0.5) * 28;
+  el.style.left = `calc(50% + ${jitter}px)`;
+  container.appendChild(el);
+
+  el.addEventListener('animationend', () => {
+    el.remove();
+  });
+}
+
 function handleServerMessage(data) {
   if (!data) return;
 
@@ -431,31 +504,40 @@ function handleServerMessage(data) {
         $nameP1.textContent = pWhite.name + (pWhite.id === MY_ID ? ' (Вы)' : '');
         $statusP1.textContent = pWhite.online ? 'Подключён' : 'Не в сети';
         $statusP1.className = `status-pill ${pWhite.online ? 'online' : 'offline'}`;
+        if ($readyP1) {
+          $readyP1.textContent = pWhite.ready ? '✅ Готов' : '⏳ Не готов';
+          $readyP1.className = `ready-pill ${pWhite.ready ? 'ready' : 'not-ready'}`;
+        }
       } else {
         $nameP1.textContent = 'Ожидание игрока...';
         $statusP1.textContent = 'Не в сети';
         $statusP1.className = 'status-pill offline';
+        if ($readyP1) {
+          $readyP1.textContent = '⏳ Не готов';
+          $readyP1.className = 'ready-pill not-ready';
+        }
       }
 
       if (pBlack) {
         $nameP2.textContent = pBlack.name + (pBlack.id === MY_ID ? ' (Вы)' : '');
         $statusP2.textContent = pBlack.online ? 'Подключён' : 'Не в сети';
         $statusP2.className = `status-pill ${pBlack.online ? 'online' : 'offline'}`;
+        if ($readyP2) {
+          $readyP2.textContent = pBlack.ready ? '✅ Готов' : '⏳ Не готов';
+          $readyP2.className = `ready-pill ${pBlack.ready ? 'ready' : 'not-ready'}`;
+        }
       } else {
         $nameP2.textContent = 'Ожидание игрока...';
         $statusP2.textContent = 'Не в сети';
         $statusP2.className = 'status-pill offline';
+        if ($readyP2) {
+          $readyP2.textContent = '⏳ Не готов';
+          $readyP2.className = 'ready-pill not-ready';
+        }
       }
 
       const opp = data.players.find(p => p.id !== MY_ID);
       state.opponentName = opp ? opp.name : 'Соперник';
-
-      // Both players connected and both online -> Launch game automatically!
-      if (data.is_ready && !state.gameStarted) {
-        state.gameStarted = true;
-        haptic('success');
-        setTimeout(launchGame, 600);
-      }
     }
 
     // 3. Update view if playing
@@ -464,6 +546,32 @@ function handleServerMessage(data) {
       if (data.winner !== null && data.winner !== undefined) {
         handleGameOver(data.winner);
       }
+    }
+  } else if (data.type === 'player_ready_update') {
+    if (Array.isArray(data.players)) {
+      const pWhite = data.players.find(p => p.color === 1);
+      const pBlack = data.players.find(p => p.color === -1);
+      if (pWhite && $readyP1) {
+        $readyP1.textContent = pWhite.ready ? '✅ Готов' : '⏳ Не готов';
+        $readyP1.className = `ready-pill ${pWhite.ready ? 'ready' : 'not-ready'}`;
+      }
+      if (pBlack && $readyP2) {
+        $readyP2.textContent = pBlack.ready ? '✅ Готов' : '⏳ Не готов';
+        $readyP2.className = `ready-pill ${pBlack.ready ? 'ready' : 'not-ready'}`;
+      }
+    }
+  } else if (data.type === 'countdown') {
+    handleCountdownTick(data.count);
+  } else if (data.type === 'game_start') {
+    if (!state.gameStarted) {
+      state.gameStarted = true;
+      if ($countdownOverlay) $countdownOverlay.classList.add('hidden');
+      launchGame();
+    }
+  } else if (data.type === 'player_reaction') {
+    if (data.player_id !== MY_ID) {
+      haptic('light');
+      spawnFloatingEmoji($oppReaction, data.emoji);
     }
   } else if (data.type === 'timer_tick') {
     if ($timer && data.timer_seconds !== undefined) {
@@ -483,17 +591,79 @@ function handleServerMessage(data) {
       $nameP2.textContent = 'Ожидание игрока...';
       $statusP2.textContent = 'Не в сети';
       $statusP2.className = 'status-pill offline';
+      if ($readyP2) {
+        $readyP2.textContent = '⏳ Не готов';
+        $readyP2.className = 'ready-pill not-ready';
+      }
     }
   }
+}
+
+// =================================================================
+// Countdown Animation
+// =================================================================
+
+function handleCountdownTick(count) {
+  if (!$countdownOverlay) return;
+  $countdownOverlay.classList.remove('hidden');
+
+  if (count > 0) {
+    $countdownNumber.textContent = count;
+    $countdownNumber.className = 'countdown-number';
+    if (count === 3) {
+      $countdownText.textContent = 'Приготовьтесь...';
+      haptic('light');
+    } else if (count === 2) {
+      $countdownText.textContent = 'Внимание...';
+      haptic('light');
+    } else if (count === 1) {
+      $countdownText.textContent = 'По коням...';
+      haptic('medium');
+    }
+  } else {
+    $countdownNumber.textContent = 'В бой! ⚔️';
+    $countdownNumber.className = 'countdown-number fight';
+    $countdownText.textContent = 'Удачи!';
+    haptic('success');
+
+    setTimeout(() => {
+      $countdownOverlay.classList.add('hidden');
+      if (!state.gameStarted) {
+        state.gameStarted = true;
+        launchGame();
+      }
+    }, 650);
+  }
+}
+
+function runLocalCountdown(onComplete) {
+  let c = 3;
+  handleCountdownTick(c);
+  const interval = setInterval(() => {
+    c--;
+    handleCountdownTick(c);
+    if (c <= 0) {
+      clearInterval(interval);
+      if (onComplete) setTimeout(onComplete, 700);
+    }
+  }, 900);
 }
 
 function renderLobbyInitial() {
   $nameP1.textContent = 'Подключение...';
   $statusP1.textContent = 'В сети';
   $statusP1.className = 'status-pill online';
+  if ($readyP1) {
+    $readyP1.textContent = '⏳ Не готов';
+    $readyP1.className = 'ready-pill not-ready';
+  }
   $nameP2.textContent = 'Ожидание игрока...';
   $statusP2.textContent = 'Не в сети';
   $statusP2.className = 'status-pill offline';
+  if ($readyP2) {
+    $readyP2.textContent = '⏳ Не готов';
+    $readyP2.className = 'ready-pill not-ready';
+  }
 }
 
 // =================================================================
@@ -681,6 +851,48 @@ function handleGameOver(winner, timeout = false) {
 }
 
 // ---------- Button Handlers ----------
+if ($btnReady) {
+  $btnReady.addEventListener('click', () => {
+    state.myReady = !state.myReady;
+    if (state.myReady) {
+      $btnReady.textContent = 'Отменить готовность';
+      $btnReady.classList.add('active');
+      haptic('success');
+      if ($readyP1) {
+        $readyP1.textContent = '✅ Готов';
+        $readyP1.className = 'ready-pill ready';
+      }
+    } else {
+      $btnReady.textContent = 'Готов к игре';
+      $btnReady.classList.remove('active');
+      haptic('light');
+      if ($readyP1) {
+        $readyP1.textContent = '⏳ Не готов';
+        $readyP1.className = 'ready-pill not-ready';
+      }
+    }
+
+    if (state.isBotMode) {
+      if (state.myReady) {
+        runLocalCountdown(() => {
+          launchGame();
+        });
+      }
+    } else {
+      sendReadyState(state.myReady);
+    }
+  });
+}
+
+if ($reactionsBar) {
+  $reactionsBar.addEventListener('click', (e) => {
+    const btn = e.target.closest('.reaction-btn');
+    if (btn && btn.dataset.emoji) {
+      sendReaction(btn.dataset.emoji);
+    }
+  });
+}
+
 if ($btnShare) {
   $btnShare.addEventListener('click', () => {
     haptic('light');
@@ -702,7 +914,17 @@ if ($btnPlayBot) {
     state.isBotMode = true;
     state.myColor = 1;
     state.opponentName = 'Бот';
-    launchGame();
+    $nameP2.textContent = 'Бот';
+    $statusP2.textContent = 'В сети';
+    $statusP2.className = 'status-pill online';
+    if ($readyP2) {
+      $readyP2.textContent = '✅ Готов';
+      $readyP2.className = 'ready-pill ready';
+    }
+    // Launch countdown right away for smooth experience
+    runLocalCountdown(() => {
+      launchGame();
+    });
   });
 }
 

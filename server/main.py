@@ -128,7 +128,7 @@ def _serialize_moves(moves: List) -> List[Dict]:
 
 async def _build_game_state(room: Room, your_color: int) -> Dict[str, Any]:
     game = room.game
-    valid_moves = game.get_valid_moves(game.current_turn) if game.winner is None else []
+    valid_moves = game.get_valid_moves(game.current_turn) if (game.winner is None and room.game_started) else []
     return {
         "type": "game_state",
         "room_id": room.room_id,
@@ -138,12 +138,14 @@ async def _build_game_state(room: Room, your_color: int) -> Dict[str, Any]:
         "winner": game.winner,
         "your_color": your_color,
         "timer_seconds": room.timer_seconds,
+        "game_started": room.game_started,
         "players": [
             {
                 "id": p.player_id,
                 "name": p.player_name,
                 "color": p.color,
                 "online": p.online,
+                "ready": p.ready,
             }
             for p in room.players.values()
         ],
@@ -209,6 +211,34 @@ async def _run_timer(room: Room) -> None:
         pass  # Timer was cancelled because a move was made
 
 
+async def _start_countdown(room: Room) -> None:
+    """Run 3..2..1 countdown when both players are ready, then start game."""
+    try:
+        for count in [3, 2, 1]:
+            await _broadcast(room, {"type": "countdown", "count": count})
+            await asyncio.sleep(1)
+
+        room.game_started = True
+        room.countdown_task = None
+        await _broadcast(room, {"type": "game_start"})
+        _reset_timer(room)
+        await _send_state_to_all(room)
+        await update_room_message(room.room_id)
+    except asyncio.CancelledError:
+        pass
+
+
+def _trigger_countdown_if_ready(room: Room) -> None:
+    if room.is_ready_to_play and not room.game_started:
+        if room.countdown_task is None or room.countdown_task.done():
+            room.countdown_task = asyncio.create_task(_start_countdown(room))
+    else:
+        if room.countdown_task and not room.countdown_task.done():
+            room.countdown_task.cancel()
+            room.countdown_task = None
+            asyncio.create_task(_broadcast(room, {"type": "countdown_cancelled"}))
+
+
 def _reset_timer(room: Room) -> None:
     """Cancel any running timer and start a fresh one."""
     if room.timer_task and not room.timer_task.done():
@@ -269,8 +299,8 @@ async def websocket_endpoint(
     # Always update live Telegram chat card when any player connects!
     await update_room_message(room.room_id)
 
-    # If both players are now connected, start the timer
-    if room.is_full and (room.timer_task is None or room.timer_task.done()):
+    # If game was already started (e.g. reconnection), ensure timer is active
+    if room.game_started and room.game.winner is None and (room.timer_task is None or room.timer_task.done()):
         _reset_timer(room)
 
     try:
@@ -282,11 +312,40 @@ async def websocket_endpoint(
                 await websocket.send_text(json.dumps({"type": "error", "message": "Invalid JSON"}))
                 continue
 
-            if data.get("type") == "move":
+            msg_type = data.get("type")
+            if msg_type == "move":
                 await _handle_move(room, player_id, color, data, websocket)
+            elif msg_type == "player_ready":
+                is_ready = bool(data.get("ready", True))
+                room.set_player_ready(player_id, is_ready)
+                logger.info("Player %s in room %s ready=%s", player_id, room_id, is_ready)
+                await _broadcast(
+                    room,
+                    {
+                        "type": "player_ready_update",
+                        "player_id": player_id,
+                        "ready": is_ready,
+                        "ready_count": room.ready_count,
+                        "is_ready_to_play": room.is_ready_to_play,
+                    },
+                )
+                await _send_state_to_all(room)
+                await update_room_message(room.room_id)
+                _trigger_countdown_if_ready(room)
+            elif msg_type == "reaction":
+                emoji = str(data.get("emoji", "👋"))[:10]
+                await _broadcast(
+                    room,
+                    {
+                        "type": "player_reaction",
+                        "player_id": player_id,
+                        "color": color,
+                        "emoji": emoji,
+                    },
+                )
             else:
                 await websocket.send_text(
-                    json.dumps({"type": "error", "message": f"Unknown message type: {data.get('type')}"})
+                    json.dumps({"type": "error", "message": f"Unknown message type: {msg_type}"})
                 )
 
     except WebSocketDisconnect:
@@ -295,6 +354,9 @@ async def websocket_endpoint(
             if room.players[player_id].websocket is websocket:
                 room.players[player_id].online = False
                 room.players[player_id].websocket = None
+                if not room.game_started:
+                    room.players[player_id].ready = False
+                    _trigger_countdown_if_ready(room)
                 await _send_state_to_all(room)
                 await update_room_message(room.room_id)
 
