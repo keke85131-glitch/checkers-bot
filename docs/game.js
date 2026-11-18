@@ -565,8 +565,16 @@ function handleServerMessage(data) {
   } else if (data.type === 'game_start') {
     if (!state.gameStarted) {
       state.gameStarted = true;
-      if ($countdownOverlay) $countdownOverlay.classList.add('hidden');
+      if ($countdownOverlay) {
+        $countdownOverlay.style.display = 'none';
+        $countdownOverlay.classList.add('hidden');
+      }
       launchGame();
+    }
+  } else if (data.type === 'countdown_cancelled') {
+    if ($countdownOverlay) {
+      $countdownOverlay.style.display = 'none';
+      $countdownOverlay.classList.add('hidden');
     }
   } else if (data.type === 'player_reaction') {
     if (data.player_id !== MY_ID) {
@@ -605,6 +613,7 @@ function handleServerMessage(data) {
 
 function handleCountdownTick(count) {
   if (!$countdownOverlay) return;
+  $countdownOverlay.style.display = 'flex';
   $countdownOverlay.classList.remove('hidden');
 
   if (count > 0) {
@@ -627,12 +636,13 @@ function handleCountdownTick(count) {
     haptic('success');
 
     setTimeout(() => {
+      $countdownOverlay.style.display = 'none';
       $countdownOverlay.classList.add('hidden');
       if (!state.gameStarted) {
         state.gameStarted = true;
         launchGame();
       }
-    }, 650);
+    }, 600);
   }
 }
 
@@ -671,6 +681,10 @@ function renderLobbyInitial() {
 // =================================================================
 
 function launchGame() {
+  if ($countdownOverlay) {
+    $countdownOverlay.style.display = 'none';
+    $countdownOverlay.classList.add('hidden');
+  }
   $screenLobby.classList.add('hidden');
   $screenGameOver.classList.add('hidden');
   $screenGame.classList.remove('hidden');

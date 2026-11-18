@@ -47,7 +47,9 @@ html, body {
   padding: 20px;
 }
 
-.screen.hidden {
+.hidden,
+.screen.hidden,
+.countdown-overlay.hidden {
   display: none !important;
 }
 

@@ -214,9 +214,9 @@ async def _run_timer(room: Room) -> None:
 async def _start_countdown(room: Room) -> None:
     """Run 3..2..1 countdown when both players are ready, then start game."""
     try:
-        for count in [3, 2, 1]:
+        for count in [3, 2, 1, 0]:
             await _broadcast(room, {"type": "countdown", "count": count})
-            await asyncio.sleep(1)
+            await asyncio.sleep(0.9 if count > 0 else 0.5)
 
         room.game_started = True
         room.countdown_task = None
