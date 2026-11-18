@@ -107,8 +107,8 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         )
         button_text = "🎮 Вернуться в игру"
 
-    # 2. Оба в игре:
-    elif room.is_full and (p1 is not None and p2 is not None):
+    # 2. Оба игрока подключены и в игре:
+    elif room.is_full and (p1 is not None and p2 is not None) and (p1.online and p2.online):
         turn_color = "Белых" if game.current_turn == 1 else "Чёрных"
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
@@ -118,13 +118,23 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
         )
         button_text = "🎮 Открыть партию"
 
-    # 1. Ожидание второго игрока:
+    # 1. Если зашёл один игрок (Белые в игре, Чёрных ещё нет):
+    elif p1 is not None and p1.online:
+        text = (
+            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В игре</i>\n"
+            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
+            f"<b>Статус:</b> Создатель в игре • Ожидание соперника"
+        )
+        button_text = "🎮 Войти в игру"
+
+    # 0. Никто ещё не зашёл в игру (сообщение только что отправлено):
     else:
         text = (
             f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
+            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GRAY_OFFLINE} <i>Не в игре</i>\n"
             f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-            f"<b>Статус:</b> Ожидание второго игрока"
+            f"<b>Статус:</b> Партия создана • Ожидание игроков"
         )
         button_text = "🎮 Войти в игру"
 
@@ -192,9 +202,9 @@ async def inline_checkers(query: InlineQuery):
 
     message_text = (
         f"<b>Шашки 8×8 • Комната #{room_id}</b>\n\n"
-        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
+        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GRAY_OFFLINE} <i>Не в игре</i>\n"
         f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-        f"<b>Статус:</b> Ожидание второго игрока"
+        f"<b>Статус:</b> Партия создана • Ожидание игроков"
     )
 
     # 1. Онлайн-партия для двоих

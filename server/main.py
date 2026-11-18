@@ -266,11 +266,12 @@ async def websocket_endpoint(
     # Broadcast updated room state to all players in this room
     await _send_state_to_all(room)
 
-    # If both players are now connected, start the timer and update Telegram inline card
-    if room.is_full:
-        await update_room_message(room.room_id)
-        if room.timer_task is None or room.timer_task.done():
-            _reset_timer(room)
+    # Always update live Telegram chat card when any player connects!
+    await update_room_message(room.room_id)
+
+    # If both players are now connected, start the timer
+    if room.is_full and (room.timer_task is None or room.timer_task.done()):
+        _reset_timer(room)
 
     try:
         while True:
