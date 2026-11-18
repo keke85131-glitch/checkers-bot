@@ -75,6 +75,36 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
     p1_name = html.escape(p1.player_name) if p1 else html.escape(room.creator_name or "Белые")
     p2_name = html.escape(p2.player_name) if p2 else "Ожидание соперника..."
 
+    p1_online = p1 is not None and p1.online
+    p2_online = p2 is not None and p2.online
+
+    # Индикаторы и подписи для каждого игрока
+    if p1_online:
+        ind_p1 = EMOJI_GREEN_ONLINE
+        st_p1 = "Готов" if p1.ready else "В игре"
+    elif p1 is not None:
+        ind_p1 = EMOJI_GRAY_OFFLINE
+        st_p1 = "Отошёл"
+    else:
+        ind_p1 = EMOJI_GRAY_OFFLINE
+        st_p1 = "Не в игре"
+
+    if p2_online:
+        ind_p2 = EMOJI_GREEN_ONLINE
+        st_p2 = "Готов" if p2.ready else "В игре"
+    elif p2 is not None:
+        ind_p2 = EMOJI_GRAY_OFFLINE
+        st_p2 = "Отошёл"
+    else:
+        ind_p2 = None
+        st_p2 = "Ожидание соперника..."
+
+    p1_line = f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {ind_p1} <i>{st_p1}</i>"
+    if ind_p2:
+        p2_line = f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {ind_p2} <i>{st_p2}</i>"
+    else:
+        p2_line = f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>{st_p2}</i>"
+
     game = room.game
 
     # 1. Завершение партии: победа / поражение / таймаут
@@ -85,77 +115,54 @@ async def update_room_message(room_id: str, bot: Optional[Bot] = None) -> bool:
             winner_name = f"{p2_name} (Чёрные)"
         else:
             winner_name = "Ничья"
-
-        text = (
-            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name}\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name}\n\n"
-            f"{EMOJI_TROPHY} <b>Победитель:</b> {winner_name}"
-        )
+        status_text = f"{EMOJI_TROPHY} <b>Победитель:</b> {winner_name}"
         button_text = "🔄 Новая игра"
 
-    # 2. Если один из игроков свернул / вышел:
-    elif room.is_full and (p1 is not None and p2 is not None) and (not p1.online or not p2.online):
-        ind_p1 = EMOJI_GREEN_ONLINE if p1.online else EMOJI_GRAY_OFFLINE
-        status_p1 = "В игре" if p1.online else "Отошёл"
-
-        ind_p2 = EMOJI_GREEN_ONLINE if p2.online else EMOJI_GRAY_OFFLINE
-        status_p2 = "В игре" if p2.online else "Отошёл"
-
-        text = (
-            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {ind_p1} <i>{status_p1}</i>\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {ind_p2} <i>{status_p2}</i>\n\n"
-            f"<b>Статус:</b> Ожидание возвращения игрока..."
-        )
-        button_text = "🎮 Вернуться в игру"
-
-    # 3. Партия идёт:
+    # 2. Если игра уже началась (активная партия)
     elif room.game_started:
-        turn_color = "Белых" if game.current_turn == 1 else "Чёрных"
-        text = (
-            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В игре</i>\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {EMOJI_GREEN_ONLINE} <i>В игре</i>\n\n"
-            f"<b>Статус:</b> Партия идёт • Ход {turn_color}"
-        )
-        button_text = "🎮 Открыть партию"
+        if not p1_online or not p2_online:
+            status_text = "<b>Статус:</b> Ожидание возвращения игрока..."
+            button_text = "🎮 Вернуться в игру"
+        else:
+            turn_color = "Белых" if game.current_turn == 1 else "Чёрных"
+            status_text = f"<b>Статус:</b> Партия идёт • Ход {turn_color}"
+            button_text = "🎮 Открыть партию"
 
-    # 4. Оба готовы! Запуск...
-    elif room.is_full and p1 is not None and p2 is not None and (
+    # 3. Оба игрока онлайн и готовы, либо идёт обратный отсчет
+    elif room.is_full and p1_online and p2_online and (
         (getattr(room, "countdown_task", None) and not room.countdown_task.done())
         or (p1.ready and p2.ready)
     ):
-        text = (
-            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>Готов</i>\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {EMOJI_GREEN_ONLINE} <i>Готов</i>\n\n"
-            f"<b>Статус:</b> Оба готовы! Запуск..."
-        )
+        status_text = "<b>Статус:</b> Оба готовы! Запуск..."
         button_text = "🎮 Открыть партию"
 
-    # 5. Оба в комнате, ожидание готовности:
-    elif room.is_full and p1 is not None and p2 is not None:
+    # 4. Оба игрока подключены, ожидание нажатия «Готов»
+    elif room.is_full and p1_online and p2_online:
         ready_count = (1 if p1.ready else 0) + (1 if p2.ready else 0)
-        st_p1 = "Готов" if p1.ready else "В сети"
-        st_p2 = "Готов" if p2.ready else "В сети"
-        text = (
-            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>{st_p1}</i>\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> {p2_name} • {EMOJI_GREEN_ONLINE} <i>{st_p2}</i>\n\n"
-            f"<b>Статус:</b> Ожидание готовности ({ready_count}/2)"
-        )
+        status_text = f"<b>Статус:</b> Ожидание готовности игроков ({ready_count}/2)"
         button_text = "🎮 Войти в игру"
 
-    # 6. Ожидание второго игрока:
-    else:
-        text = (
-            f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
-            f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {p1_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
-            f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-            f"<b>Статус:</b> Ожидание второго игрока"
-        )
+    # 5. Если оба зарегистрированы, но кто-то отошёл/свернул
+    elif room.is_full and (not p1_online or not p2_online):
+        status_text = "<b>Статус:</b> Ожидание возвращения игрока..."
+        button_text = "🎮 Вернуться в игру"
+
+    # 6. Только один игрок реально в сети (зашёл в игру)
+    elif p1_online or p2_online:
+        status_text = "<b>Статус:</b> Создатель в игре • Ожидание соперника"
         button_text = "🎮 Войти в игру"
+
+    # 7. Никто ещё не зашёл в игру (партия создана, сообщение только что отправлено)
+    else:
+        status_text = "<b>Статус:</b> Партия создана • Ожидание игроков"
+        button_text = "🎮 Войти в игру"
+
+    text = (
+        f"<b>Шашки 8×8 • Комната #{clean_room_id}</b>\n\n"
+        f"{p1_line}\n"
+        f"{p2_line}\n\n"
+        f"{status_text}"
+    )
 
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -223,9 +230,9 @@ async def inline_checkers(query: InlineQuery):
 
     message_text = (
         f"<b>Шашки 8×8 • Комната #{room_id}</b>\n\n"
-        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GREEN_ONLINE} <i>В сети</i>\n"
+        f"┌ {EMOJI_WHITE_CHECKER} <b>Белые:</b> {safe_user_name} • {EMOJI_GRAY_OFFLINE} <i>Не в игре</i>\n"
         f"└ {EMOJI_BLACK_CHECKER} <b>Чёрные:</b> <i>Ожидание соперника...</i>\n\n"
-        f"<b>Статус:</b> Ожидание второго игрока"
+        f"<b>Статус:</b> Партия создана • Ожидание игроков"
     )
 
     result = InlineQueryResultArticle(
